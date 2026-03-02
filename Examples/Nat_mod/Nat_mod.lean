@@ -1,4 +1,4 @@
-import Tactic.translate
+import Quotify.Translate
 import Mathlib.Tactic
 
 def R : Nat → relation Nat := fun n x y => x.mod n = y.mod n

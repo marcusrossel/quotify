@@ -36,18 +36,18 @@ def sigToQuotient (Setoid_A : Expr) (f_sig : Expr) : MetaM Expr := do
     let f₁     := (sig_f₁_arrows.getAppArgs)[1]!
     let arrows := (sig_f₁_arrows.getAppArgs)[2]!
     let ret :=  ← match arrows with
-                  | .app (.app (.app (.app (.const ``respectful _) _) _) (.app ((.const R₁ _) ) param₁) ) arrows  =>
+                  | .app (.app (.app (.app (.const ``respectful _) _) _) (.app ((.const _R₁ _) ) param₁) ) arrows  =>
                     match arrows with
                                                   --Signature f (R₁ ⟹ Eq)
                     | .app (.const ``Eq _) _  => mkAppOptM ``Quotient.lift_mk $ #[ none, none, Expr.app Setoid_A param₁] ++ #[some f₁, some f_sig₁]
                                                                 --Signature f (R₁ ⟹ R₂)
-                    | .app ((.const R₂ _) ) param₂  => mkAppOptM ``Quotient.map_mk $ #[none, none, Expr.app Setoid_A param₁, Expr.app Setoid_A param₂] ++ #[some f₁, some f_sig₁]
-                    | .app (.app (.app (.app (.const ``respectful _) _) _) (.app ((.const R₂ _) ) param₂) ) arrows =>
+                    | .app ((.const _R₂ _) ) param₂  => mkAppOptM ``Quotient.map_mk $ #[none, none, Expr.app Setoid_A param₁, Expr.app Setoid_A param₂] ++ #[some f₁, some f_sig₁]
+                    | .app (.app (.app (.app (.const ``respectful _) _) _) (.app ((.const _R₂ _) ) param₂) ) arrows =>
                       match arrows with
                                                     --Signature f (R₁ ⟹ R₂ ⟹ Eq)
                       | .app (.const ``Eq _) _ => mkAppOptM ``Quotient.lift₂_mk $ #[none, none, none, Setoid_A.app param₁, Setoid_A.app param₂] ++ #[some f₁, some f_sig₁]
                                                     --Signature f (R₁ ⟹ R₂ ⟹ R₃)
-                      | .app ((.const R₃ _) ) param₃ => mkAppOptM ``Quotient.map₂_mk $ #[none, none, Expr.app Setoid_A param₁, Expr.app Setoid_A param₂, none, Expr.app Setoid_A param₃] ++ #[some f₁, some f_sig₁]
+                      | .app ((.const _R₃ _) ) param₃ => mkAppOptM ``Quotient.map₂_mk $ #[none, none, Expr.app Setoid_A param₁, Expr.app Setoid_A param₂, none, Expr.app Setoid_A param₃] ++ #[some f₁, some f_sig₁]
 
                       | _ => throwError "Must have type ∀ α₁ ... αₙ, Signature f₁ (R₁ ⟹ ...)"
                     | _ => throwError "Must have type ∀ α₁ ... αₙ, Signature f₁ (R₁ ⟹ ...)"

@@ -1,6 +1,6 @@
 import Lean
-import Tactic.replace_R
-import Tactic.signature
+import Quotify.ReplaceR
+import Quotify.Signature
 
 open Lean Elab Tactic Term Meta
 
@@ -30,7 +30,7 @@ def translateF (R : Name) (R_Setoid : Name) (resp_list : Array (Name × Name)) :
       try
         (evalTactic (← `(tactic| simp only [← $eq] at *)))
         restart := true
-      catch err => continue
+      catch _err => continue
 
   -- Step 4:
   -- eq_list is no longer
@@ -47,7 +47,7 @@ elab "translateF" R:ident R_Setoid:ident sig_list:sig_list : tactic =>
 
 
 
-def translateB (R : Name) (R_Setoid : Name) (resp_list : Array (Name × Name)) : TacticM Unit := do
+def translateB (_R : Name) (R_Setoid : Name) (resp_list : Array (Name × Name)) : TacticM Unit := do
   --Step 1: For each respectful func, add "func_eq" to a list
   let mut eq_list := []
   for (f, f_sig) in resp_list do
@@ -69,7 +69,7 @@ def translateB (R : Name) (R_Setoid : Name) (resp_list : Array (Name × Name)) :
       try
         (evalTactic (← `(tactic| simp only [$eq:term] at *)))
         restart := true
-      catch err => continue
+      catch _err => continue
 
   -- Step 3:
   -- eq_list is no longer

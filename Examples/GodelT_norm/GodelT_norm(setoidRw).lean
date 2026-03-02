@@ -1,4 +1,4 @@
-import Tactic.translate
+import Quptify.Translate
 import Mathlib.Tactic
 
 -- From: https://cs.ioc.ee/ewscs/2009/dybjer/mainPalmse-revised.pdf

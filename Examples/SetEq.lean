@@ -1,4 +1,4 @@
-import Tactic.translate
+import Quotify.Translate
 /-
 From:
   https://github.com/FWuermse/grw/blob/main/GrwTest/SetEq.lean
