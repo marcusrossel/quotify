@@ -1,5 +1,5 @@
 import Lean
-import Mathlib.Tactic
+import Quotify.Mathlib
 
 open Lean Elab Tactic Term Meta
 
@@ -8,19 +8,18 @@ open Lean Elab Tactic Term Meta
 
 -- mkQuotientEq R R_Setoid := λ x₁ ⋯ xₙ e1 e2 => ⟦e1⟧ = ⟦e2⟧
 def mkQuotientEq (R : Name) (R_Setoid : Name) : MetaM Expr := do
-  let R_Setoid  := (Expr.const R_Setoid [])
-
-  let R     := Lean.mkConst R
-  let RType := ← inferType R
-  let n     := RType.getNumHeadForalls
-  forallBoundedTelescope RType (some $ n+2) fun xs_e1_e2 _Prop => do
+  let R_Setoid := Lean.mkConst R_Setoid
+  let R        := Lean.mkConst R
+  let RType     ← inferType R
+  let n        := RType.getNumHeadForalls
+  forallBoundedTelescope RType ↑(n + 2) fun xs_e1_e2 _Prop => do
     let xs := xs_e1_e2.pop.pop
     let e1 := xs_e1_e2.pop.toList.getLast!
     let e2 := xs_e1_e2.toList.getLast!
-    let X := ← inferType e2
-    let bb_e1_dd := (← mkAppOptM ``Quotient.mk $ #[some X] ++ #[some $ mkAppN (R_Setoid) xs, e1])
-    let bb_e2_dd := (← mkAppOptM ``Quotient.mk $ #[some X] ++ #[some $ mkAppN (R_Setoid) xs, e2])
-    let eq := ← mkEq bb_e1_dd bb_e2_dd
+    let X   ← inferType e2
+    let bb_e1_dd ← mkAppOptM ``Quotient.mk $ #[some X] ++ #[some <| mkAppN (R_Setoid) xs, e1]
+    let bb_e2_dd ← mkAppOptM ``Quotient.mk $ #[some X] ++ #[some <| mkAppN (R_Setoid) xs, e2]
+    let eq ← mkEq bb_e1_dd bb_e2_dd
     mkLambdaFVars xs_e1_e2 eq
 
 
@@ -28,10 +27,8 @@ def mkQuotientEq (R : Name) (R_Setoid : Name) : MetaM Expr := do
 -- R_Setoid : (x₁ : T₁) → (x₂ : T₂) → ⋯ → (xₙ : Tₙ) → Setoid X
 
 -- mkR_Eq_Quotient R R_Setoid := R = λ x₁ ⋯ xₙ e1 e2 => ⟦e1⟧ = ⟦e2⟧
-def mkR_Eq_Quotient (R : Name) (R_Setoid : Name) : MetaM Expr := do
-  let QuotientEq := ← mkQuotientEq R R_Setoid
-  let R := .const R []
-  mkEq R QuotientEq
+def mkR_Eq_Quotient (R R_Setoid : Name) : MetaM Expr := do
+  mkEq (mkConst R) (← mkQuotientEq R R_Setoid)
 
 
 -- R        : (x₁ : T₁) → (x₂ : T₂) → ⋯ → (xₙ : Tₙ) → relation X
@@ -99,7 +96,9 @@ def replace_R (R : Name) (R_Setoid : Name) : TacticM Unit :=
     evalTactic (← `(tactic | subst ($eq_Ident:ident)))
 
     -- Beta-reduce the goal
-    evalTactic (← `(tactic | beta_reduce))
+    liftMetaTactic1 fun mvarId => do
+      let ty ← instantiateMVars (← mvarId.getType)
+      mvarId.change (checkDefEq := false) (← Core.betaReduce ty)
 
     -- Re-intro all our localHyps (first-to-last localHyps)
     let goal      := ← getMainGoal
