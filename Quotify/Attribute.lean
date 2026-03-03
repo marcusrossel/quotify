@@ -3,22 +3,11 @@ public import Lean.Elab.Command
 public meta import Quotify.Extension
 meta import Lean.Elab.Command
 import Quotify.Extension
+import Quotify.GetSetoid
 
 open Lean Meta
 
 namespace Quotify
-
-inductive BodyUnfoldingResult where
-  | setoid (e : Expr)
-  | failure (e : Expr)
-
-partial def getSetoidFromBody? (body : Expr) : MetaM BodyUnfoldingResult := do
-  match_expr body with
-  | Setoid.r _ setoid _ _ =>
-    return .setoid setoid
-  | _ =>
-    let some unfoldedBody ← unfoldProjInst? body | return .failure body
-    getSetoidFromBody? unfoldedBody
 
 partial def setoidNameForDecl! (declName : Name) : MetaM Name := do
   let .thmInfo thmInfo ← getConstInfo declName
@@ -26,14 +15,13 @@ partial def setoidNameForDecl! (declName : Name) : MetaM Name := do
                   `{.ofConstName declName}` is not a theorem."
   let thmType := thmInfo.type
   forallTelescope thmType fun _ body => do
-    match ← getSetoidFromBody? body with
-    | .setoid setoid =>
-      if let some setoidName := setoid.getAppFn'.constName? then
-        return setoidName
-      else
+    match ← body.getSetoidName? with
+    | .success setoidName =>
+      return setoidName
+    | .illformedSetoid setoid =>
         throwSetoidError m!"Additionally, the type of the setoid must be an application where the \
                             head is a constant. Howewer, the given setoid is `{setoid}`."
-    | .failure body =>
+    | .notReducibleToSetoid body =>
       throwSetoidError m!"However, the given theorem `{.ofConstName declName}` reduces to `{body}`."
 where
   throwSetoidError {α} (msgSuffix : MessageData) : MetaM α :=
