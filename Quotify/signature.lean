@@ -1,13 +1,14 @@
-import Lean
+module
+public import Lean.Expr
+public import Lean.Elab.Tactic.Basic
+import Lean.Meta.Tactic
 import Quotify.Mathlib
-
 open Lean Elab Tactic Meta
 
 /-- This is the property required by `Quotient.map`. -/
-def Respectful (ra : α → α → Prop) (rb : β → β → Prop) (f₁ f₂ : α → β) : Prop :=
+-- TODO: This should not be public. It only is for the tests.
+public def Respectful (ra : α → α → Prop) (rb : β → β → Prop) (f₁ f₂ : α → β) : Prop :=
   ∀ ⦃a₁ a₂ : α⦄, ra a₁ a₂ → rb (f₁ a₁) (f₂ a₂)
-
-infix:55 " ⟹ " => Respectful
 
 /-
 We will be considering respectful operations of the form:
@@ -19,6 +20,7 @@ f_sig : α₁ → ⋯ → αₘ → Signature f (R₁ ⟹ R₂ ⟹ Eq)
 
 where:
 
+local infix:55 " ⟹ " => Respectful
 def Signature {α : Sort u} (m : α) (r : α → α → Prop) := r m m
 -/
 
@@ -42,7 +44,7 @@ def sigToQuotient (Setoid_A : Expr) (f_sig : Expr) : MetaM Expr := do
       | _ => throwError "Must have type ∀ α₁ ... αₙ, Signature f₁ (R₁ ⟹ ...)"
     mkLambdaFVars alphas ret
 
-def letSignature (Setoid_A : Expr) (f f_sig : Name) : TacticM Name := do
+public def letSignature (Setoid_A : Expr) (f f_sig : Name) : TacticM Name := do
   let f_sig  := mkConst f_sig
   -- eq_pf := fun α₁ ... αₙ => liftFxn (f₁) (f_sig α₁ ... αₙ)
   let eq_pf   ← sigToQuotient Setoid_A f_sig
@@ -55,8 +57,8 @@ def letSignature (Setoid_A : Expr) (f f_sig : Name) : TacticM Name := do
   return f.appendAfter "_eq"
 
 syntax entry    := "⟨" ident "," ident "⟩"
-syntax sig_list := "[" entry,* "]"
+public syntax sig_list := "[" entry,* "]"
 
-def parse_entry : TSyntax `entry → (Name × Name)
+public def parse_entry : TSyntax `entry → (Name × Name)
   | `(entry| ⟨$f, $f_sig⟩) => ⟨f.getId, f_sig.getId⟩
   | _ => unreachable!

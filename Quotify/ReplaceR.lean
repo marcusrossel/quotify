@@ -1,13 +1,13 @@
-import Lean
-import Quotify.Mathlib
-
+module
+public meta import Lean
+public meta import Quotify.Mathlib
 open Lean Elab Tactic Term Meta
 
 -- R        : (x₁ : T₁) → (x₂ : T₂) → ⋯ → (xₙ : Tₙ) → relation X
 -- R_Setoid : (x₁ : T₁) → (x₂ : T₂) → ⋯ → (xₙ : Tₙ) → Setoid X
 
 -- mkQuotientEq R R_Setoid := λ x₁ ⋯ xₙ e1 e2 => ⟦e1⟧ = ⟦e2⟧
-def mkQuotientEq (R : Name) (R_Setoid : Name) : MetaM Expr := do
+meta def mkQuotientEq (R : Name) (R_Setoid : Name) : MetaM Expr := do
   let R_Setoid := Lean.mkConst R_Setoid
   let R        := Lean.mkConst R
   let RType     ← inferType R
@@ -22,12 +22,11 @@ def mkQuotientEq (R : Name) (R_Setoid : Name) : MetaM Expr := do
     let eq ← mkEq bb_e1_dd bb_e2_dd
     mkLambdaFVars xs_e1_e2 eq
 
-
 -- R        : (x₁ : T₁) → (x₂ : T₂) → ⋯ → (xₙ : Tₙ) → relation X
 -- R_Setoid : (x₁ : T₁) → (x₂ : T₂) → ⋯ → (xₙ : Tₙ) → Setoid X
 
 -- mkR_Eq_Quotient R R_Setoid := R = λ x₁ ⋯ xₙ e1 e2 => ⟦e1⟧ = ⟦e2⟧
-def mkR_Eq_Quotient (R R_Setoid : Name) : MetaM Expr := do
+meta def mkR_Eq_Quotient (R R_Setoid : Name) : MetaM Expr := do
   mkEq (mkConst R) (← mkQuotientEq R R_Setoid)
 
 
@@ -35,7 +34,7 @@ def mkR_Eq_Quotient (R R_Setoid : Name) : MetaM Expr := do
 -- R_Setoid : (x₁ : T₁) → (x₂ : T₂) → ⋯ → (xₙ : Tₙ) → Setoid X
 
 -- Adds "R_eq : R = λ x₁ ⋯ xₙ e1 e2 => ⟦e1⟧ = ⟦e2⟧" to the environment
-def addR_eq (R : Name) (R_Setoid : Name) : TermElabM Unit := do
+meta def addR_eq (R : Name) (R_Setoid : Name) : TermElabM Unit := do
   -- Build the type "R = λ x₁ ⋯ xₙ e1 e2 => ⟦e1⟧ = ⟦e2⟧"
   let type := ← mkR_Eq_Quotient R R_Setoid
 
@@ -61,11 +60,13 @@ def addR_eq (R : Name) (R_Setoid : Name) : TermElabM Unit := do
     value       := pf
   }
   addDecl decl
-elab "addR_eq" R:name R_Setoid:name : tactic => do addR_eq R.getName R_Setoid.getName
+
+elab "addR_eq" R:name R_Setoid:name : tactic => do
+  addR_eq R.getName R_Setoid.getName
 
 -- R        : (x₁ : T₁) → (x₂ : T₂) → ⋯ → (xₙ : Tₙ) → relation X
 -- R_Setoid : (x₁ : T₁) → (x₂ : T₂) → ⋯ → (xₙ : Tₙ) → Setoid X
-def replace_R (R : Name) (R_Setoid : Name) : TacticM Unit :=
+public meta def replace_R (R : Name) (R_Setoid : Name) : TacticM Unit :=
   withMainContext do
     -- Add "R_eq : R = λ x₁ ⋯ xₙ e1 e2 => ⟦e1⟧ = ⟦e2⟧" to the environment
     let env       := ← getEnv
@@ -106,7 +107,9 @@ def replace_R (R : Name) (R_Setoid : Name) : TacticM Unit :=
     let n := localHyps.length
     let (_, goal) := ← goal.introN n (givenNames := localHyps)
     replaceMainGoal [goal]
-elab "replace_R" R:ident R_Setoid:ident : tactic => do replace_R @R.getId @R_Setoid.getId
+
+elab "replace_R" R:ident R_Setoid:ident : tactic => do
+  replace_R @R.getId @R_Setoid.getId
 /-
 Step 1: Revert EVERYTHING to get a single Target with an empty LocalCtxt
 

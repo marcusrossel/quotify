@@ -1,7 +1,13 @@
+module
+
+public section
+
 def Option.casesOn' : Option α → β → (α → β) → β
   | none, n, _ => n
   | some a, _, s => s a
 
+-- Note: This definition has to be exposed for `Quotient.map_mk` to be public.
+@[expose]
 protected def Quot.map (f : α → β) (h : ∀ ⦃a b : α⦄, ra a b → rb (f a) (f b)) : Quot ra → Quot rb :=
   Quot.lift (fun x => Quot.mk rb (f x)) fun _ _ hra ↦ Quot.sound <| h hra
 
@@ -11,9 +17,13 @@ notation:arg "⟦" a "⟧" => Quotient.mk _ a
 
 variable {sa : Setoid α} {sb : Setoid β} {sc : Setoid γ}
 
+-- Note: This definition has to be exposed for `Quotient.map_mk` to be public.
+@[expose]
 protected def map (f : α → β) (h : ∀ ⦃a b : α⦄, a ≈ b → f a ≈ f b) : Quotient sa → Quotient sb :=
   Quot.map f h
 
+-- Note: This definition has to be exposed for `Quotient.map₂_mk` to be public.
+@[expose]
 protected def map₂ (f : α → β → γ) (h : ∀ ⦃a₁ a₂⦄, a₁ ≈ a₂ → ∀ ⦃b₁ b₂⦄, b₁ ≈ b₂ → f a₁ b₁ ≈ f a₂ b₂) :
     Quotient sa → Quotient sb → Quotient sc :=
   Quotient.lift₂ (fun x y => .mk _ (f x y)) fun _ _ _ _ h₁ h₂ => Quot.sound <| h h₁ h₂

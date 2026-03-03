@@ -1,11 +1,11 @@
+module
 import Lean
-import Quotify.ReplaceR
-import Quotify.Signature
+public meta import Quotify.ReplaceR
+public meta import Quotify.Signature
 
 open Lean Elab Tactic Term Meta
 
-
-def translateF (R : Name) (R_Setoid : Name) (resp_list : Array (Name × Name)) : TacticM Unit := do
+meta def translateF (R : Name) (R_Setoid : Name) (resp_list : Array (Name × Name)) : TacticM Unit := do
   --Step 1: Replace all instances of "R x₁⋯xₙ a b" with "⟦a⟧ = ⟦b⟧"
   replace_R R R_Setoid
 
@@ -47,7 +47,7 @@ elab "translateF" R:ident R_Setoid:ident sig_list:sig_list : tactic =>
 
 
 
-def translateB (_R : Name) (R_Setoid : Name) (resp_list : Array (Name × Name)) : TacticM Unit := do
+meta def translateB (_R : Name) (R_Setoid : Name) (resp_list : Array (Name × Name)) : TacticM Unit := do
   --Step 1: For each respectful func, add "func_eq" to a list
   let mut eq_list := []
   for (f, f_sig) in resp_list do
@@ -85,30 +85,4 @@ elab "translateB" R:ident R_Setoid:ident sig_list:sig_list : tactic =>
   do
   let `(sig_list| [$[$sig_list],*]) := sig_list | unreachable!
   let sig_list := sig_list.map parse_entry
-  translateB @R.getId @R_Setoid.getId sig_list
-
-
-
-@[app_unexpander Quotient.lift]
-def unexpandLift : Lean.PrettyPrinter.Unexpander
-  | `($_ $t:term ⋯) => `(⟦$t⟧)
-  | `($_ $t:term $_:term) => `(⟦$t⟧)
-  | _ => throw ()
-
-@[app_unexpander Quotient.lift₂]
-def unexpandLift₂ : Lean.PrettyPrinter.Unexpander
-  | `($_ $t:term ⋯) => `(⟦$t⟧)
-  | `($_ $t:term $_:term) => `(⟦$t⟧)
-  | _ => throw ()
-
-@[app_unexpander Quotient.map]
-def unexpandMap : Lean.PrettyPrinter.Unexpander
-  | `($_ $t:term ⋯) => `(⟦$t⟧)
-  | `($_ $t:term $_:term) => `(⟦$t⟧)
-  | _ => throw ()
-
-@[app_unexpander Quotient.map₂]
-def unexpandMap₂ : Lean.PrettyPrinter.Unexpander
-  | `($_ $t:term ⋯) => `(⟦$t⟧)
-  | `($_ $t:term $_:term) => `(⟦$t⟧)
-  | _ => throw ()
+  translateB R.getId R_Setoid.getId sig_list
