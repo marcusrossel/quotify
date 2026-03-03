@@ -7,9 +7,8 @@ open Lean Elab Tactic Term Meta
 -- R_Setoid : (x₁ : T₁) → (x₂ : T₂) → ⋯ → (xₙ : Tₙ) → Setoid X
 
 -- mkQuotientEq R R_Setoid := λ x₁ ⋯ xₙ e1 e2 => ⟦e1⟧ = ⟦e2⟧
-meta def mkQuotientEq (R : Name) (R_Setoid : Name) : MetaM Expr := do
+meta def mkQuotientEq (R : Expr) (R_Setoid : Name) : MetaM Expr := do
   let R_Setoid := Lean.mkConst R_Setoid
-  let R        := Lean.mkConst R
   let RType     ← inferType R
   let n        := RType.getNumHeadForalls
   forallBoundedTelescope RType ↑(n + 2) fun xs_e1_e2 _Prop => do
@@ -26,15 +25,15 @@ meta def mkQuotientEq (R : Name) (R_Setoid : Name) : MetaM Expr := do
 -- R_Setoid : (x₁ : T₁) → (x₂ : T₂) → ⋯ → (xₙ : Tₙ) → Setoid X
 
 -- mkR_Eq_Quotient R R_Setoid := R = λ x₁ ⋯ xₙ e1 e2 => ⟦e1⟧ = ⟦e2⟧
-meta def mkR_Eq_Quotient (R R_Setoid : Name) : MetaM Expr := do
-  mkEq (mkConst R) (← mkQuotientEq R R_Setoid)
+meta def mkR_Eq_Quotient (R : Expr) (R_Setoid : Name) : MetaM Expr := do
+  mkEq R (← mkQuotientEq R R_Setoid)
 
 
 -- R        : (x₁ : T₁) → (x₂ : T₂) → ⋯ → (xₙ : Tₙ) → relation X
 -- R_Setoid : (x₁ : T₁) → (x₂ : T₂) → ⋯ → (xₙ : Tₙ) → Setoid X
 
 -- Adds "R_eq : R = λ x₁ ⋯ xₙ e1 e2 => ⟦e1⟧ = ⟦e2⟧" to the environment
-meta def addR_eq (R : Name) (R_Setoid : Name) : TermElabM Unit := do
+meta def addR_eq (R : Expr) (R_Setoid : Name) : TermElabM Unit := do
   -- Build the type "R = λ x₁ ⋯ xₙ e1 e2 => ⟦e1⟧ = ⟦e2⟧"
   let type := ← mkR_Eq_Quotient R R_Setoid
 
@@ -54,24 +53,21 @@ meta def addR_eq (R : Name) (R_Setoid : Name) : TermElabM Unit := do
   let env              := ← getEnv
   let restrictedPrefix := env.asyncPrefix?.casesOn' ("") (λ name => name.toString ++ ".")
   let decl := Declaration.thmDecl {
-    name        := (restrictedPrefix ++ R.toString ++ "_eq").toName
+    name        := (restrictedPrefix ++ R_Setoid.toString ++ "_eq").toName
     levelParams := []
     type        := type
     value       := pf
   }
   addDecl decl
 
-elab "addR_eq" R:name R_Setoid:name : tactic => do
-  addR_eq R.getName R_Setoid.getName
-
 -- R        : (x₁ : T₁) → (x₂ : T₂) → ⋯ → (xₙ : Tₙ) → relation X
 -- R_Setoid : (x₁ : T₁) → (x₂ : T₂) → ⋯ → (xₙ : Tₙ) → Setoid X
-public meta def replace_R (R : Name) (R_Setoid : Name) : TacticM Unit :=
+public meta def replace_R (R : Expr) (R_Setoid : Name) : TacticM Unit :=
   withMainContext do
     -- Add "R_eq : R = λ x₁ ⋯ xₙ e1 e2 => ⟦e1⟧ = ⟦e2⟧" to the environment
     let env       := ← getEnv
     let restrictedPrefix := env.asyncPrefix?.casesOn' ("") (λ name => name.toString ++ ".")
-    let R_eq      := (restrictedPrefix ++ R.toString ++ "_eq").toName
+    let R_eq      := (restrictedPrefix ++ R_Setoid.toString ++ "_eq").toName
     if ! env.contains R_eq
     then
       addR_eq R R_Setoid
@@ -83,8 +79,8 @@ public meta def replace_R (R : Name) (R_Setoid : Name) : TacticM Unit :=
     replaceMainGoal [goal]
 
     -- Generalize on R
-    let R_Ident    := mkIdent R
-    let R'_Ident   := mkIdent (R.toString ++ "'").toName
+    let R_Ident    := mkIdent R_Setoid
+    let R'_Ident   := mkIdent (R_Setoid.toString ++ "'").toName
     let eq_Ident  := mkIdent ("eq").toName
     evalTactic (← `(tactic | generalize $eq_Ident:ident : (@$R_Ident:ident) = $R'_Ident:ident))
 
@@ -108,8 +104,6 @@ public meta def replace_R (R : Name) (R_Setoid : Name) : TacticM Unit :=
     let (_, goal) := ← goal.introN n (givenNames := localHyps)
     replaceMainGoal [goal]
 
-elab "replace_R" R:ident R_Setoid:ident : tactic => do
-  replace_R @R.getId @R_Setoid.getId
 /-
 Step 1: Revert EVERYTHING to get a single Target with an empty LocalCtxt
 

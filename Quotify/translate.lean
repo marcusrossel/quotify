@@ -2,11 +2,11 @@ module
 import Lean
 public meta import Quotify.ReplaceR
 public meta import Quotify.Signature
-public meta import Quotify.GetSetoid
+public meta import Quotify.EquivRel
 
 open Lean Elab Tactic Term Meta
 
-meta def translateF (R : Name) (R_Setoid : Name) (resp_list : Array (Name × Name)) : TacticM Unit := do
+meta def translateF (R : Expr) (R_Setoid : Name) (resp_list : Array (Name × Name)) : TacticM Unit := do
   --Step 1: Replace all instances of "R x₁⋯xₙ a b" with "⟦a⟧ = ⟦b⟧"
   replace_R R R_Setoid
 
@@ -40,16 +40,18 @@ meta def translateF (R : Name) (R_Setoid : Name) (resp_list : Array (Name × Nam
     (evalTactic (← `(tactic| clear $eq)))
 
 
-elab "translateF" R:ident sig_list:sig_list : tactic => do
+elab "translateF" sig_list:sig_list : tactic => do
   let goalType ← getMainTarget
-  let .success R_Setoid ← goalType.getSetoidName? | throwError "failed to find setoid in goal"
+  let .success R ← Quotify.EquivRel.fromFullyApplied goalType | throwError "failed to find equivalence relation in goal"
+  let some setoid ← R.getSetoid? | throwError "No setoid found for {indentExpr R}"
+  let R_Setoid := setoid.getAppFn'.constName!
   let `(sig_list| [$[$sig_list],*]) := sig_list | unreachable!
   let sig_list := sig_list.map parse_entry
-  translateF R.getId R_Setoid sig_list
+  translateF R R_Setoid sig_list
 
 
 
-meta def translateB (_R : Name) (R_Setoid : Name) (resp_list : Array (Name × Name)) : TacticM Unit := do
+meta def translateB (R_Setoid : Name) (resp_list : Array (Name × Name)) : TacticM Unit := do
   --Step 1: For each respectful func, add "func_eq" to a list
   let mut eq_list := []
   for (f, f_sig) in resp_list do
@@ -83,9 +85,11 @@ meta def translateB (_R : Name) (R_Setoid : Name) (resp_list : Array (Name × Na
   let R_Setoid := mkIdent R_Setoid
   evalTactic (← `(tactic| simp only [Quotient.eq, $R_Setoid:term] at *))
 
-elab "translateB" R:ident sig_list:sig_list : tactic => do
+elab "translateB" sig_list:sig_list : tactic => do
   let goalType ← getMainTarget
-  let .success R_Setoid ← goalType.getSetoidName? | throwError "failed to find setoid in goal"
+  let .success R ← Quotify.EquivRel.fromFullyApplied goalType | throwError "failed to find equivalence relation in goal"
+  let some setoid ← R.getSetoid? | throwError "No setoid found for {indentExpr R}"
+  let R_Setoid := setoid.getAppFn'.constName!
   let `(sig_list| [$[$sig_list],*]) := sig_list | unreachable!
   let sig_list := sig_list.map parse_entry
-  translateB R.getId R_Setoid sig_list
+  translateB R_Setoid sig_list

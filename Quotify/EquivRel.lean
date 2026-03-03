@@ -51,9 +51,9 @@ def fromExpr (expr : Expr) : MetaM FromExprResult := do
   let expr := mkAppN expr #[lhsArg, rhsArg]
   let { expr, .. } ← abstractMVars expr
   -- This step ensures that the names of universe parameters in `expr` are consistent (note that
-  -- `abstractMVars` above ensured that there are no level mvars.) Specifically, we rename the
+  -- `abstractMVars` above ensured that there are no level mvars). Specifically, we rename the
   -- universe parameters to `_uvar.0`, `_uvar.1`, etc. If we did not do this, then "obviously" equal
-  -- `EquivRel`s do not compare as equal due to mismatching universe parameter names.
+  -- `EquivRel`s would not compare as equal due to mismatching universe parameter names.
   let { params, .. } := collectLevelParams {} expr
   let normParams := params.mapIdx fun idx _ => mkLevelParam (.num `_uvar idx)
   let expr := expr.instantiateLevelParamsArray params normParams
@@ -74,10 +74,31 @@ Given an `expr` which reduces to the form `r a₁ … aₙ lhs rhs`, where `r a�
 returns an `EquivRel` for `r a₁ … aₙ`. See `EquivRel.fromExpr` for more information.
 -/
 public def fromFullyApplied (app : Expr) : MetaM FromFullyAppliedResult := do
+    -- TODO: This can cause problems when WHNF reduces so far that we beta reduce into the relation
+  --       and don't have an application with ≥ 2 args anymore. E.g. see SetEq.lean.
+  --       A partial fix is to reduce only up to instances. But then something like
+  --       (fun a b => ∀ x, ... a ... b ...) a₁ a₂ still reduces too much.
+  --       We tried only reducing to whnf at the end, but that broke some things in Test.lean
+  --       which forced us to instantiate mvars, and which also didnt reduce to List.Perm then.
+  --       I don't understand why that is. perhaps if we figure that out, then performing only
+  --       reducible whnf in the start and full whnf at the end is the solution.
+  --
+  --       What would be best? WHNF with a restriction that beta reduction should only ocurr within
+  --       the head? We can simulate that by only whnf on the head, but that leads to problems too.
   let app ← whnf app
   let numArgs := app.getAppNumArgs'
   unless numArgs ≥ 2 do return .missingArgs numArgs
   let rel := app.getAppPrefix (numArgs - 2)
   fromExpr rel
+
+-- TODO: Delete this if setoids become irrelevant. If it remains, make it more robust on errors.
+public def getSetoid? (equivRel : EquivRel) : MetaM (Option Expr) := do
+  lambdaTelescope equivRel fun vars _ => do
+    let mainType ← inferType vars.back!
+    let level ← getLevel mainType
+    let setoidType := mkApp (.const ``Setoid [level]) mainType
+    let args := vars.pop.pop
+    let synthType ← mkForallFVars args setoidType
+    synthInstance? synthType
 
 end EquivRel

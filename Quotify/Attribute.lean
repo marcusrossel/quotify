@@ -54,6 +54,13 @@ meta def elabEquivRel (rel : Term) : TermElabM EquivRel := do
     throwError "The type of {indentExpr fullyAppliedRelExpr}\nis not compatible with `quotify`. It \
                 is expected to be a homogeneous binary relation, but is {indentExpr type}"
 
+
+elab "#quotify_setoid " rel:term : command =>
+  withRef rel <| liftTermElabM do
+    let equivRel ← elabEquivRel rel
+    let some inst ← equivRel.getSetoid? | throwError "No setoid found for {indentExpr equivRel}"
+    logInfo inst
+
 elab "#quotify_rel " rel:term : command =>
   withRef rel <| liftTermElabM do
     let equivRel ← elabEquivRel rel
