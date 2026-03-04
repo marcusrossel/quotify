@@ -1,6 +1,7 @@
 module
 public import Lean.Elab.Command
 import Lean.Expr
+import Lean.Meta.Reduce
 
 open Lean Meta
 
@@ -42,6 +43,7 @@ and abstracts over all mvar arguments. That is, it returns an expression of the 
 `rhs` have type `α`.
 -/
 def fromExpr (expr : Expr) : MetaM FromExprResult := do
+  let expr ← instantiateMVars expr
   let type ← inferType expr
   let some argType ← homogenousBinaryRelationType? type | return .illformedType type
   -- Given that `expr` has type `α → α → Prop`, constructs `expr ?lhs ?rhs : Prop` so that
@@ -49,6 +51,7 @@ def fromExpr (expr : Expr) : MetaM FromExprResult := do
   let lhsArg ← mkFreshExprMVar argType (userName := `lhs)
   let rhsArg ← mkFreshExprMVar argType (userName := `rhs)
   let expr := mkAppN expr #[lhsArg, rhsArg]
+  let expr ← reduce (skipTypes := false) expr -- TODO
   let { expr, .. } ← abstractMVars expr
   -- This step ensures that the names of universe parameters in `expr` are consistent (note that
   -- `abstractMVars` above ensured that there are no level mvars). Specifically, we rename the
@@ -72,20 +75,28 @@ instance : Coe FromExprResult FromFullyAppliedResult where
 /--
 Given an `expr` which reduces to the form `r a₁ … aₙ lhs rhs`, where `r a₁ … aₙ : α → α → Prop`,
 returns an `EquivRel` for `r a₁ … aₙ`. See `EquivRel.fromExpr` for more information.
+
+---
+
+We extract the equivalence relation as follows.
+
+1. We construct the WHNF of `app` *without β-reduction*. This is supposed to unfold the head such
+   that any potential arguments "hidden" in the head become visible. For example, given a definition
+   `Empty {α} (l : List α) : Prop := l = []`, this unfolds the term `@Empty α l` to
+   `@Empty (List α) l []`. Note that the term `@Empty α l` has two arguments, but they aren't the
+   arguments being compared by the underlying equivalence relation `=`.
+2. We chop off the final two arguments, assuming they are the arguments being compared by the
+   equivalence relation. Thus, the remaining expression is the equivalence relation.
+3. In `fromExpr` we `reduce` the equivalence relation to normalize it as much as possible.
+
+Note, we do not simply reduce the entire term initially, as this could cause us to lose the
+distinction between the equivalence relation and its arguments. For example, consider the term
+`(fun l₁ l₂, ∀ x, x ∈ l₁ ↔ x ∈ l₂) a b`. If we reduce this term immediately, we get
+`∀ x, x ∈ a ↔ x ∈ b`, which is not an application containing the elements being compared, so it is
+not immedaitely obvious what the equivalence relation should be.
 -/
 public def fromFullyApplied (app : Expr) : MetaM FromFullyAppliedResult := do
-    -- TODO: This can cause problems when WHNF reduces so far that we beta reduce into the relation
-  --       and don't have an application with ≥ 2 args anymore. E.g. see SetEq.lean.
-  --       A partial fix is to reduce only up to instances. But then something like
-  --       (fun a b => ∀ x, ... a ... b ...) a₁ a₂ still reduces too much.
-  --       We tried only reducing to whnf at the end, but that broke some things in Test.lean
-  --       which forced us to instantiate mvars, and which also didnt reduce to List.Perm then.
-  --       I don't understand why that is. perhaps if we figure that out, then performing only
-  --       reducible whnf in the start and full whnf at the end is the solution.
-  --
-  --       What would be best? WHNF with a restriction that beta reduction should only ocurr within
-  --       the head? We can simulate that by only whnf on the head, but that leads to problems too.
-  let app ← whnf app
+  let app ← withConfig ({ · with beta := false }) do whnf app
   let numArgs := app.getAppNumArgs'
   unless numArgs ≥ 2 do return .missingArgs numArgs
   let rel := app.getAppPrefix (numArgs - 2)
