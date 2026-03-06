@@ -1,28 +1,28 @@
 module
 public meta import Lean.Elab.Command
-public meta import Quotify.EquivRel
+public meta import Quotify.BinRel
 public meta import Quotify.Attribute
 
 open Quotify Lean Elab Command
 
 elab "#quotify_rel " rel:term : command =>
   withRef rel <| liftTermElabM do
-    let equivRel ← EquivRel.fromTerm rel
+    let binRel ← BinRel.fromTerm rel
     withOptions (·.setBool `pp.fieldNotation.generalized false) do
-      logInfo m!"[{equivRel.numParams}] {equivRel.expr}"
+      logInfo m!"[{binRel.numParams}] {binRel.expr}"
 
 elab "#quotify_qrel " rel:term : command =>
   withRef rel <| liftTermElabM do
-    let equivRel ← EquivRel.fromTerm rel
-    let quotRel ← equivRel.quotify
+    let binRel ← BinRel.fromTerm rel
+    let quotRel ← binRel.quotify
     withOptions (·.setBool `pp.fieldNotation.generalized false) do
       logInfo quotRel
 
 elab "#quotify_setoid " rel:term : command =>
   withRef rel <| liftTermElabM do
-    let equivRel ← EquivRel.fromTerm rel
-    let some inst ← equivRel.getSetoid?
-      | throwError "No setoid found for {indentExpr equivRel.expr}"
+    let binRel ← BinRel.fromTerm rel
+    let some inst ← binRel.getSetoid?
+      | throwError "No setoid found for {indentExpr binRel.expr}"
     logInfo inst
 
 /--
@@ -33,12 +33,12 @@ elab "#quotify_theorems " rel?:(term)? : command => do
   let thms := extension.getState (← getEnv)
   if let some rel := rel? then
     withRef rel <| liftTermElabM do
-      let equivRel ← EquivRel.fromTerm rel
-      let some thms := thms[equivRel]?
-        | throwError "No `quotify` theorems have been registered for {indentExpr equivRel.expr}"
+      let binRel ← BinRel.fromTerm rel
+      let some thms := thms[binRel]?
+        | throwError "No `quotify` theorems have been registered for {indentExpr binRel.expr}"
       let msg : MessageData := thms.map MessageData.ofConstName
       logInfo msg
   else
-    for (equivRel, thms) in thms do
+    for (binRel, thms) in thms do
       let thmsMsg : MessageData := thms.map MessageData.ofConstName
-      logInfo m!"{equivRel.expr}:\n{thmsMsg}"
+      logInfo m!"{binRel.expr}:\n{thmsMsg}"

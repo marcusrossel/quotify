@@ -1,16 +1,16 @@
 module
 public import Lean.Meta.Basic
-public import Quotify.EquivRel
+public import Quotify.BinRel
 
 open Lean Meta Std
 
 namespace Quotify.Extension
 
 public abbrev Theorem  := Name
-public abbrev Theorems := HashMap EquivRel (List Theorem)
+public abbrev Theorems := HashMap BinRel (List Theorem)
 
 public structure Entry where
-  key : EquivRel
+  key : BinRel
   val : Theorem
   deriving Inhabited
 
@@ -33,22 +33,22 @@ def Extension.mk : IO Extension :=
 
 public initialize extension : Extension ← Extension.mk
 
-partial def equivRelForDecl! (declName : Name) : MetaM EquivRel := do
+partial def binRelForDecl! (declName : Name) : MetaM BinRel := do
   let .thmInfo thmInfo ← getConstInfo declName
     | throwError "You can only use the `[quotify]` attribute on theorems, but \
                   `{.ofConstName declName}` is not a theorem."
   let thmType := thmInfo.type
   let (_, _, fullyAppliedThmType) ← forallMetaTelescopeReducing thmType
-  let .success equivRel ← EquivRel.fromFullyApplied fullyAppliedThmType
+  let .success binRel ← BinRel.fromFullyApplied fullyAppliedThmType
     | throwError "You can only use the `[quotify]` attribute on theorems of the form \
                   `∀ … lhs rhs, r … lhs rhs` where `r …` is a homogeneous binary relation."
-  return equivRel
+  return binRel
 
 def addQuotifyAttribute (declName : Name) (attrKind : AttributeKind) : MetaM Unit := do
   recordExtraModUseFromDecl (isMeta := false) declName
   let resolvedDeclName ← resolveGlobalConstNoOverloadCore declName
-  let equivRel ← equivRelForDecl! resolvedDeclName
-  extension.add { key := equivRel, val := resolvedDeclName } attrKind
+  let binRel ← binRelForDecl! resolvedDeclName
+  extension.add { key := binRel, val := resolvedDeclName } attrKind
 
 initialize
   -- TODO: I'm guessing we should use some other function, which does not mention "builtin".

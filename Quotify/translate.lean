@@ -2,7 +2,7 @@ module
 import Lean
 public meta import Quotify.ReplaceR
 public meta import Quotify.Signature
-public meta import Quotify.EquivRel
+public meta import Quotify.BinRel
 
 open Lean Elab Tactic Term Meta
 
@@ -42,7 +42,7 @@ meta def translateF (R : Expr) (R_Setoid : Name) (resp_list : Array (Name × Nam
 
 elab "translateF" sig_list:sig_list : tactic => withMainContext do
   let goalType ← getMainTarget
-  let .success R ← Quotify.EquivRel.fromFullyApplied goalType | throwError "failed to find equivalence relation in goal"
+  let .success R ← Quotify.BinRel.fromFullyApplied goalType | throwError "failed to find equivalence relation in goal"
   let some setoid ← R.getSetoid? | throwError "No setoid found for {indentExpr R}"
   let R_Setoid := setoid.getAppFn'.constName!
   let `(sig_list| [$[$sig_list],*]) := sig_list | unreachable!
@@ -85,7 +85,7 @@ meta def translateB (R_Setoid : Name) (resp_list : Array (Name × Name)) : Tacti
 
 elab "translateB" sig_list:sig_list : tactic => withMainContext do
   let goalType ← getMainTarget
-  let .success R ← Quotify.EquivRel.fromFullyApplied goalType | throwError "failed to find equivalence relation in goal"
+  let .success R ← Quotify.BinRel.fromFullyApplied goalType | throwError "failed to find equivalence relation in goal"
   let some setoid ← R.getSetoid? | throwError "No setoid found for {indentExpr R}"
   let R_Setoid := setoid.getAppFn'.constName!
   let `(sig_list| [$[$sig_list],*]) := sig_list | unreachable!
