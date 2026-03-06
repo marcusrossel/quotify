@@ -40,7 +40,7 @@ meta def translateF (R : Expr) (R_Setoid : Name) (resp_list : Array (Name × Nam
     (evalTactic (← `(tactic| clear $eq)))
 
 
-elab "translateF" sig_list:sig_list : tactic => do
+elab "translateF" sig_list:sig_list : tactic => withMainContext do
   let goalType ← getMainTarget
   let .success R ← Quotify.EquivRel.fromFullyApplied goalType | throwError "failed to find equivalence relation in goal"
   let some setoid ← R.getSetoid? | throwError "No setoid found for {indentExpr R}"
@@ -48,8 +48,6 @@ elab "translateF" sig_list:sig_list : tactic => do
   let `(sig_list| [$[$sig_list],*]) := sig_list | unreachable!
   let sig_list := sig_list.map parse_entry
   translateF R R_Setoid sig_list
-
-
 
 meta def translateB (R_Setoid : Name) (resp_list : Array (Name × Name)) : TacticM Unit := do
   --Step 1: For each respectful func, add "func_eq" to a list
@@ -85,7 +83,7 @@ meta def translateB (R_Setoid : Name) (resp_list : Array (Name × Name)) : Tacti
   let R_Setoid := mkIdent R_Setoid
   evalTactic (← `(tactic| simp only [Quotient.eq, $R_Setoid:term] at *))
 
-elab "translateB" sig_list:sig_list : tactic => do
+elab "translateB" sig_list:sig_list : tactic => withMainContext do
   let goalType ← getMainTarget
   let .success R ← Quotify.EquivRel.fromFullyApplied goalType | throwError "failed to find equivalence relation in goal"
   let some setoid ← R.getSetoid? | throwError "No setoid found for {indentExpr R}"
