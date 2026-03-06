@@ -1,6 +1,7 @@
 module
 public meta import Lean.Elab.Command
 public meta import Quotify.BinRel
+public meta import Quotify.EquivRel
 public meta import Quotify.Attribute
 
 open Quotify Lean Elab Command
@@ -14,14 +15,14 @@ elab "#quotify_rel " rel:term : command =>
 elab "#quotify_qrel " rel:term : command =>
   withRef rel <| liftTermElabM do
     let binRel ← BinRel.fromTerm rel
-    let quotRel ← binRel.quotify
+    let quotRel ← EquivRel.quotify binRel
     withOptions (·.setBool `pp.fieldNotation.generalized false) do
       logInfo quotRel
 
 elab "#quotify_setoid " rel:term : command =>
   withRef rel <| liftTermElabM do
     let binRel ← BinRel.fromTerm rel
-    let some inst ← binRel.getSetoid?
+    let some inst ← EquivRel.getSetoid? binRel
       | throwError "No setoid found for {indentExpr binRel.expr}"
     logInfo inst
 

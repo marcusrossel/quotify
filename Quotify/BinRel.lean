@@ -169,37 +169,9 @@ Given `binRel.expr` of the form `λ a₁ … aₙ, r a₁ … aₙ`, executes
 `k : (params : Array Expr) → (rel : Expr) → (argType : Expr) → MetaM α` with `params` being fvars
 for `a₁ … aₙ`, and `rel` and `argType` instantiated to `r params` and `argType params` respectively.
 -/
-def telescope (binRel : BinRel) (k : Array Expr → Expr → Expr → MetaM α) : MetaM α := do
+public def telescope (binRel : BinRel) (k : Array Expr → Expr → Expr → MetaM α) : MetaM α := do
   lambdaBoundedTelescope binRel.expr binRel.numParams fun params rel => do
     let argType ← instantiateLambda binRel.argType params
     k params rel argType
-
--- TODO: As we also need a proof of equivalence, this might need to be defined on some other type
---       than `BinRel`.
--- TODO: Update the doc comment.
-/--
-Given an `BinRel` of the form `λ a₁ … aₙ, r a₁ … aₙ`, returns the corresponding relation over
-quotients `λ a₁ … aₙ lhs rhs, Quot.mk (r a₁ … aₙ) lhs = Quot.mk (r a₁ … aₙ) rhs`.
--/
-public def quotify (binRel : BinRel) : MetaM Expr := do
-  -- TODO: Construct a Setoid on the fly and use `Quotient`.
-  binRel.telescope fun params rel argType => do
-    withLocalDecl `lhs .default argType fun lhs => do
-      withLocalDecl `rhs .default argType fun rhs => do
-        let eqLhs ← mkAppM ``Quot.mk #[rel, lhs]
-        let eqRhs ← mkAppM ``Quot.mk #[rel, rhs]
-        let eq ← mkEq eqLhs eqRhs
-        let vars := params ++ #[lhs, rhs]
-        mkLambdaFVars vars eq
-
--- TODO: Delete this if setoids become irrelevant. If it remains, make it more robust on errors.
-public def getSetoid? (binRel : BinRel) : MetaM (Option Expr) := do
-  lambdaTelescope binRel.expr fun vars _ => do
-    let mainType ← inferType vars.back!
-    let level ← getLevel mainType
-    let setoidType := mkApp (.const ``Setoid [level]) mainType
-    let args := vars.pop.pop
-    let synthType ← mkForallFVars args setoidType
-    synthInstance? synthType
 
 end BinRel
