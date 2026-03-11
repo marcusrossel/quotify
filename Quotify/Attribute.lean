@@ -1,29 +1,22 @@
 module
 public import Lean.Meta.Basic
-public import Quotify.BinRel
 public import Quotify.Setoid
 
 open Lean Meta Std
 
 namespace Quotify.Extension
 
-public abbrev Theorem  := Name
-public abbrev Theorems := HashMap BinRel (List Theorem)
-public abbrev Setoids  := HashMap BinRel Setoid
+public structure Proofs where
+  isEquiv?   : Option Expr := none
+  compatThms : List Name   := []
 
--- TODO: If the key-types stay the same, you can collapse `Theorems` and `Setoids` into a single
---       hashmap.
-public structure Info where
-  theorems : Theorems
-  setoids  : Setoids
-  deriving Inhabited
-
-instance : EmptyCollection Info where
-  emptyCollection := { theorems := ∅, setoids := ∅ }
+-- **TODO** The universe levels of the `BinRel`s are normalized, but those of the equivalence proofs
+--          are not.
+public abbrev Info := HashMap BinRel Proofs
 
 public inductive Entry.Val where
-  | theorem (val : Theorem)
-  | setoid (val : Setoid)
+  | equiv (proof : Expr)
+  | theorem (name : Name)
   deriving Inhabited
 
 public structure Entry where
@@ -31,15 +24,17 @@ public structure Entry where
   val : Entry.Val
   deriving Inhabited
 
-def Theorems.add (thms : Theorems) (key : BinRel) (thm : Theorem) : Theorems :=
-  thms.alter key fun
-    | some thms => thms.concat thm
-    | none      => [thm]
-
 def Info.addEntry (info : Info) (entry : Entry) : Info :=
-  match entry.val with
-  | .theorem thm => { info with theorems := info.theorems.add entry.key thm }
-  | .setoid _ => info -- TODO
+  info.alter entry.key fun proofs? =>
+    match proofs?, entry.val with
+    | none,        .equiv proof  => some { isEquiv? := proof }
+    | none,        .theorem name => some { compatThms := [name] }
+    | some proofs, .equiv proof  => some { proofs with isEquiv? := proof }
+    | some proofs, .theorem name => some { proofs with compatThms := proofs.compatThms.concat name }
+
+def Info.hasEquivProof (info : Info) (binRel : BinRel) : Bool := Id.run do
+  let some proofs := info[binRel]? | return false
+  return proofs.isEquiv?.isSome
 
 end Extension
 
@@ -53,36 +48,60 @@ def Extension.mk : IO Extension :=
     addEntry := Info.addEntry
   }
 
+public def Extension.info (ex : Extension) : MetaM Info := do
+  let env ← getEnv
+  return ex.getState env
+
 public initialize extension : Extension ← Extension.mk
 
-def binRelForThm (thmInfo : TheoremVal) : MetaM BinRel := do
-  let thmType := thmInfo.type
-  let (_, _, fullyAppliedThmType) ← forallMetaTelescopeReducing thmType
-  let .success binRel ← BinRel.fromFullyApplied fullyAppliedThmType
-    | throwError "You can only use the `[quotify]` attribute on theorems of the form \
-                  `∀ … lhs rhs, r … lhs rhs` where `r …` is a homogeneous binary relation."
-  return binRel
+namespace Attribute
 
-inductive Target where
-  | theorem (binRel : BinRel)
-  | setoid -- TODO
+inductive Target.Val where
+  | equiv (proof : Expr)
+  | theorem (resolvedDeclName : Name)
 
-def Target.forDecl (declName : Name) : MetaM Target := do
-  match ← getConstInfo declName with
+structure Target where
+  binRel : BinRel
+  val    : Target.Val
+
+def Target.forDecl (resolvedDeclName : Name) : MetaM Target := do
+  match ← getConstInfo resolvedDeclName with
+  | .defnInfo defInfo =>
+    let some setoid ← Setoid.forDef? defInfo
+      | throwError "You can only use the `[quotify]` attribute on definitions of \
+                    `{.ofConstName ``Setoid}`s."
+    let binRel ← setoid.binRel
+    let equivProof ← setoid.equivProof
+    return { binRel, val := .equiv equivProof }
   | .thmInfo thmInfo =>
-    let binRel ← binRelForThm thmInfo
-    return .theorem binRel
-  | .defnInfo _defInfo =>
-    return .setoid -- TODO
+    let some binRel ← BinRel.forThm? thmInfo
+      | throwError "You can only use the `[quotify]` attribute on theorems of the form \
+                  `∀ … lhs rhs, r … lhs rhs` where `r …` is a homogeneous binary relation."
+    return { binRel, val := .theorem resolvedDeclName }
   | _ => throwError "You can only use the `[quotify]` attribute on theorems or definitions, but \
-                     `{.ofConstName declName}` is neither."
+                     `{.ofConstName resolvedDeclName}` is neither."
+
+end Attribute
+
+open Attribute
+
+def Extension.addTarget (ex : Extension) (tgt : Target) (attrKind : AttributeKind) : MetaM Unit :=
+  match tgt.val with
+  | .theorem declName =>
+    ex.add { key := tgt.binRel, val := .theorem declName } attrKind
+  | .equiv proof => do
+    let info ← extension.info
+    if info.hasEquivProof tgt.binRel then
+      throwError "There already exists a `{.ofConstName ``Setoid}` marked with `[quotify]` for \
+                  this relation."
+    else
+      ex.add { key := tgt.binRel, val := .equiv proof } attrKind
 
 def addQuotifyAttribute (declName : Name) (attrKind : AttributeKind) : MetaM Unit := do
   recordExtraModUseFromDecl (isMeta := false) declName
   let resolvedDeclName ← resolveGlobalConstNoOverloadCore declName
-  match ← Target.forDecl resolvedDeclName with
-  | .theorem binRel => extension.add { key := binRel, val := .theorem resolvedDeclName } attrKind
-  | .setoid         => return -- TODO
+  let tgt ← Target.forDecl resolvedDeclName
+  extension.addTarget tgt attrKind
 
 initialize
   -- TODO: I'm guessing we should use some other function, which does not mention "builtin".

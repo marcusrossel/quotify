@@ -174,4 +174,10 @@ public def telescope (binRel : BinRel) (k : Array Expr → Expr → Expr → Met
     let argType ← instantiateLambda binRel.argType params
     k params rel argType
 
+public def forThm? (thmInfo : TheoremVal) : MetaM (Option BinRel) := do
+  let thmType := thmInfo.type
+  let (_, _, fullyAppliedThmType) ← forallMetaTelescopeReducing thmType
+  let .success binRel ← BinRel.fromFullyApplied fullyAppliedThmType | return none
+  return binRel
+
 end BinRel
