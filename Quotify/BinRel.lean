@@ -8,7 +8,7 @@ open Lean Meta Elab Term
 namespace Quotify
 
 /--
-An `BinRel` represents a binary relation in the form `λ a₁ … aₙ, r a₁ … aₙ`. Some of the parameters
+A `BinRel` represents a binary relation in the form `λ a₁ … aₙ, r a₁ … aₙ`. Some of the parameters
 of `r` may be applied. For example for equivalence of natural numbers modulo a value, we can have
 the following `BinRel`s:
 * polymorphic: `λ m, EqMod m`
@@ -115,7 +115,7 @@ instance : Coe FromExprResult FromFullyAppliedResult where
 
 /--
 Given an `expr` which reduces to the form `r a₁ … aₙ lhs rhs`, where `r a₁ … aₙ : α → α → Prop`,
-returns an `BinRel` for `r a₁ … aₙ`. See `BinRel.fromExpr` for more information.
+returns a `BinRel` for `r a₁ … aₙ`. See `BinRel.fromExpr` for more information.
 
 ---
 
@@ -174,10 +174,44 @@ public def telescope (binRel : BinRel) (k : Array Expr → Expr → Expr → Met
     let argType ← instantiateLambda binRel.argType params
     k params rel argType
 
+public def synthSetoid? (binRel : BinRel) : MetaM (Option Expr) := do
+  binRel.telescope fun params _ argType => do
+    let level ← getLevel argType
+    let setoidType := mkApp (.const ``Setoid [level]) argType
+    let instanceType ← mkForallFVars params setoidType
+    synthInstance? instanceType
+
 public def forThm? (thmInfo : TheoremVal) : MetaM (Option BinRel) := do
   let thmType := thmInfo.type
   let (_, _, fullyAppliedThmType) ← forallMetaTelescopeReducing thmType
   let .success binRel ← BinRel.fromFullyApplied fullyAppliedThmType | return none
   return binRel
+
+/--
+Given a `BinRel` of the form `λ a₁ … aₙ, r a₁ … aₙ`, and a proof that it is an equivalence, returns
+the corresponding relation over quotients
+`λ a₁ … aₙ lhs rhs, Quotient.mk (r a₁ … aₙ) lhs = Quotient.mk (r a₁ … aₙ) rhs`, where the setoid
+instance is constructed on-the-fly.
+
+---
+
+Note: We expect `binRel` and `equiv` to be abstracted over the same parameters.
+-/
+public def toQuotient (binRel : BinRel) (equiv : Expr) : MetaM Expr := do
+  binRel.telescope fun params rel argType => do
+    withLocalDecl `lhs .default argType fun lhs => do
+      withLocalDecl `rhs .default argType fun rhs => do
+        let equiv   ← instantiateLambda equiv params
+        let level   ← getLevel argType
+        let setoid := mkApp3 (.const ``Setoid.mk [level]) argType rel equiv
+        let eqLhs  := mkApp3 (.const ``Quotient.mk [level]) argType setoid lhs
+        let eqRhs  := mkApp3 (.const ``Quotient.mk [level]) argType setoid rhs
+        let eq      ← mkEq eqLhs eqRhs
+        let vars   := params ++ #[lhs, rhs]
+        mkLambdaFVars vars eq
+
+theorem eq_toQuotient (binRel : α → α → Prop) (equiv : Equivalence binRel) :
+    binRel = (Quotient.mk ⟨binRel, equiv⟩ · = .mk ⟨binRel, equiv⟩ ·) :=
+  funext fun _ => funext fun _ => propext ⟨(Quotient.sound ·), (Quotient.exact ·)⟩
 
 end BinRel

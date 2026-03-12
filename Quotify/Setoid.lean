@@ -46,12 +46,3 @@ public def forDef? (defnInfo : DefinitionVal) : MetaM (Option Quotify.Setoid) :=
     let type ← mkLambdaFVars params type
     let inst ← mkLambdaFVars params inst
     return some { type, inst }
-
-def synthForBinRel? (binRel : BinRel) : MetaM (Option Quotify.Setoid) := do
-  binRel.telescope fun params _ argType => do
-    let level ← getLevel argType
-    let setoidType := mkApp (.const ``Setoid [level]) argType
-    let instanceType ← mkForallFVars params setoidType
-    let some expr ← synthInstance? instanceType | return none
-    let expr ← etaExpand expr
-    sorry

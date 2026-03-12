@@ -1,26 +1,32 @@
 module
 public meta import Lean.Elab.Command
-public meta import Quotify.BinRel
-public meta import Quotify.Setoid
 public meta import Quotify.Attribute
 
 open Quotify Lean Elab Command
 
-elab "#quotify_rel " rel:term : command =>
+elab tk:"#quotify_norm " rel:term : command =>
   withRef rel <| liftTermElabM do
     let binRel ← BinRel.fromTerm rel
-    withOptions (·.setBool `pp.fieldNotation.generalized false) do
-      logInfo m!"[{binRel.numParams}] {binRel.expr}"
+    withOptions (·.set `pp.fieldNotation.generalized false) do
+      logInfoAt tk m!"[{binRel.numParams}] {binRel.expr}"
 
-/-
-elab "#quotify_qrel " rel:term : command =>
+elab tk:"#quotify_equiv " rel:term : command =>
   withRef rel <| liftTermElabM do
     let binRel ← BinRel.fromTerm rel
-    let quotRel ← quotify binRel
-    withOptions (·.setBool `pp.fieldNotation.generalized false) do
-      logInfo quotRel
--/
+    let info ← extension.info
+    match info.getEquiv? binRel with
+    | some _ => logInfoAt tk "✅"
+    | none   => logInfoAt tk "❌"
 
+elab tk:"#quotify_quot " rel:term : command =>
+  withRef rel <| liftTermElabM do
+    let binRel ← BinRel.fromTerm rel
+    let info ← extension.info
+    let some equiv := info.getEquiv? binRel
+      | throwErrorAt tk "The relation {indentExpr binRel.expr} has no corresponding \
+                         `{.ofConstName ``Setoid}` marked with `[quotify]`."
+    let quotRel ← binRel.toQuotient equiv
+    logInfoAt tk quotRel
 /--
 Show all `quotify` theorems registered for a given relation. If not relation is provided, all
 registered theorems for all relations are shown.

@@ -7,12 +7,20 @@ open Lean Meta Std
 namespace Quotify.Extension
 
 public structure Proofs where
-  isEquiv?   : Option Expr := none
+  equiv?     : Option Expr := none
   compatThms : List Name   := []
 
 -- **TODO** The universe levels of the `BinRel`s are normalized, but those of the equivalence proofs
 --          are not.
 public abbrev Info := HashMap BinRel Proofs
+
+public def Info.getEquiv? (info : Info) (binRel : BinRel) : Option Expr := do
+  let some proofs := info[binRel]? | failure
+  proofs.equiv?
+
+public def Info.getCompatThms? (info : Info) (binRel : BinRel) : Option (List Name) := do
+  let some proofs := info[binRel]? | failure
+  return proofs.compatThms
 
 public inductive Entry.Val where
   | equiv (proof : Expr)
@@ -27,14 +35,10 @@ public structure Entry where
 def Info.addEntry (info : Info) (entry : Entry) : Info :=
   info.alter entry.key fun proofs? =>
     match proofs?, entry.val with
-    | none,        .equiv proof  => some { isEquiv? := proof }
+    | none,        .equiv proof  => some { equiv? := proof }
     | none,        .theorem name => some { compatThms := [name] }
-    | some proofs, .equiv proof  => some { proofs with isEquiv? := proof }
+    | some proofs, .equiv proof  => some { proofs with equiv? := proof }
     | some proofs, .theorem name => some { proofs with compatThms := proofs.compatThms.concat name }
-
-def Info.hasEquivProof (info : Info) (binRel : BinRel) : Bool := Id.run do
-  let some proofs := info[binRel]? | return false
-  return proofs.isEquiv?.isSome
 
 end Extension
 
@@ -91,9 +95,10 @@ def Extension.addTarget (ex : Extension) (tgt : Target) (attrKind : AttributeKin
     ex.add { key := tgt.binRel, val := .theorem declName } attrKind
   | .equiv proof => do
     let info ← extension.info
-    if info.hasEquivProof tgt.binRel then
+    let equiv? := info.getEquiv? tgt.binRel
+    if equiv?.isSome then
       throwError "There already exists a `{.ofConstName ``Setoid}` marked with `[quotify]` for \
-                  this relation."
+                  the relation {indentExpr tgt.binRel.expr}"
     else
       ex.add { key := tgt.binRel, val := .equiv proof } attrKind
 
