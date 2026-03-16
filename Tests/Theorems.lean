@@ -1,4 +1,10 @@
+
 import Quotify.Command
+
+-- **TODO** See the TODO on `BinRel.unify?`.
+
+set_option pp.explicit true
+set_option pp.universes true
 
 @[quotify]
 theorem t₁ : [].Perm (α := α) [] := by rfl

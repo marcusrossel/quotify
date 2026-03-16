@@ -15,12 +15,8 @@ public structure Proofs where
 public abbrev Info := HashMap BinRel Proofs
 
 public def Info.getEquiv? (info : Info) (binRel : BinRel) : Option Expr := do
-  let some proofs := info[binRel]? | failure
+  let some proofs := info[binRel]? | none
   proofs.equiv?
-
-public def Info.getCompatThms? (info : Info) (binRel : BinRel) : Option (List Name) := do
-  let some proofs := info[binRel]? | failure
-  return proofs.compatThms
 
 public inductive Entry.Val where
   | equiv (proof : Expr)
@@ -39,6 +35,21 @@ def Info.addEntry (info : Info) (entry : Entry) : Info :=
     | none,        .theorem name => some { compatThms := [name] }
     | some proofs, .equiv proof  => some { proofs with equiv? := proof }
     | some proofs, .theorem name => some { proofs with compatThms := proofs.compatThms.concat name }
+
+-- Note: We expect `rel` to be fully applied.
+public def Info.getRelevantProofs (info : Info) (rel : Expr) : MetaM (Option Expr × List Name) := do
+  let mut equiv? : Option Expr := none
+  let mut compatThms : List Name := []
+  for (binRel, proofs) in info do
+    let some { params, levels } ← binRel.unify? rel | continue
+    compatThms := compatThms ++ proofs.compatThms
+    -- Only try to obtain an equivalence proof if we do not already have one.
+    unless equiv?.isNone do continue
+    let some equiv := proofs.equiv? | continue
+    -- **TODO** What about level parameters?
+    let equiv ← instantiateLambda equiv params
+    equiv? := equiv
+  return (equiv?, compatThms)
 
 end Extension
 

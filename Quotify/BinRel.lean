@@ -26,6 +26,9 @@ public structure BinRel where
       `r : α → α → Prop` we have `numParams = n`. If `r a₁ … aₙ` is itself a `λ` with two arguments,
       we get `λ a₁ … aₙ lhs rhs, … lhs rhs`, but still have `numParams = n`. -/
   numParams : Nat
+  /-- The names of the level parameters over which `expr` (and `argType`) is abstracted. Note, this
+      field is unrelated to `numParams`. -/
+  levelParams : List Name
   deriving BEq, Hashable, Inhabited
 
 namespace BinRel
@@ -63,10 +66,12 @@ def getArgType (rel : Expr) (numParams : Nat) : MetaM GetArgTypeResult := do
 /--
 Normalizes the names of level parameters in `expr`. We rename them to `_uvar.0`, `_uvar.1`, etc.
 -/
-def normalizeLevelParams (expr : Expr) : MetaM Expr := do
+def normalizeLevelParams (expr : Expr) : MetaM (Expr × List Name) := do
   let { params, .. } := collectLevelParams {} expr
-  let normParams := params.mapIdx fun idx _ => mkLevelParam (.num `_uvar idx)
-  return expr.instantiateLevelParamsArray params normParams
+  let normNames := params.mapIdx fun idx _ => Name.num `_uvar idx
+  let normParams := normNames.map mkLevelParam
+  let expr := expr.instantiateLevelParamsArray params normParams
+  return (expr, normNames.toList)
 
 -- TODO: What sort of reduction does `reduce` actually perform? Is there something more principled
 --       that we could apply, e.g. to obviate the need for the subsequent `eta`?
@@ -97,10 +102,10 @@ def fromExpr (rel : Expr) : MetaM FromExprResult := do
   -- `abstractMVars` above ensured that there are no level mvars). If we did not do this, then
   -- "obviously" equal `BinRel`s would not compare as equal due to mismatching universe parameter
   -- names.
-  let rel ← normalizeLevelParams rel
+  let (rel, levelParams) ← normalizeLevelParams rel
   -- Gets the argument type, while also checking that `rel` is a homogeneous binary relation.
   match ← getArgType rel numParams with
-  | .success argType    => return .success { expr := rel, argType, numParams }
+  | .success argType    => return .success { expr := rel, argType, numParams, levelParams }
   | .illformedType type => return .illformedType type
 
 public inductive FromFullyAppliedResult where
@@ -174,6 +179,21 @@ public def telescope (binRel : BinRel) (k : Array Expr → Expr → Expr → Met
     let argType ← instantiateLambda binRel.argType params
     k params rel argType
 
+/--
+Given `binRel.expr` of the form `λ a₁ … aₙ, r a₁ … aₙ`, instantiates the binders with mvars and
+returns `(params : Array Expr) × (lmvars : List Level) × (rel : Expr) × (argType : Expr)` with
+`params` being the mvars for `a₁ … aₙ`, `lmvars` being the the level mvars instantiated for
+`binRel.levelParams`, and `rel` and `argType` begin instantiated to `r params` and `argType params`
+and the level mvars respectively.
+-/
+public def metaTelescope (binRel : BinRel) : MetaM (Array Expr × List Level × Expr × Expr) := do
+  let (params, _, rel) ← lambdaMetaTelescope binRel.expr (maxMVars? := binRel.numParams)
+  let freshLMVars ← mkFreshLevelMVars binRel.levelParams.length
+  let rel        := rel.instantiateLevelParams binRel.levelParams freshLMVars
+  let argType     ← instantiateLambda binRel.argType params
+  let argType    := argType.instantiateLevelParams binRel.levelParams freshLMVars
+  return (params, freshLMVars, rel, argType)
+
 public def synthSetoid? (binRel : BinRel) : MetaM (Option Expr) := do
   binRel.telescope fun params _ argType => do
     let level ← getLevel argType
@@ -213,5 +233,19 @@ public def toQuotient (binRel : BinRel) (equiv : Expr) : MetaM Expr := do
 theorem eq_toQuotient (binRel : α → α → Prop) (equiv : Equivalence binRel) :
     binRel = (Quotient.mk ⟨binRel, equiv⟩ · = .mk ⟨binRel, equiv⟩ ·) :=
   funext fun _ => funext fun _ => propext ⟨(Quotient.sound ·), (Quotient.exact ·)⟩
+
+public structure Unifier where
+  params : Array Expr
+  levels : List Level
+
+-- **TODO** Level mvars do not unify: https://leanprover.zulipchat.com/#narrow/channel/270676-lean4/topic/Unify.20level.20mvars/near/579661832
+public def unify? (binRel : BinRel) (expr : Expr) : MetaM (Option Unifier) := do
+  let (params, lmvars, rel, _) ← binRel.metaTelescope
+  if ← isDefEq rel expr then
+    let params ← params.mapM instantiateMVars
+    let levels ← lmvars.mapM instantiateLevelMVars
+    return some { params, levels }
+  else
+    return none
 
 end BinRel
