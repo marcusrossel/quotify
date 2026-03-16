@@ -1,11 +1,6 @@
 
 import Quotify.Command
 
--- **TODO** See the TODO on `BinRel.unify?`.
-
-set_option pp.explicit true
-set_option pp.universes true
-
 @[quotify]
 theorem t₁ : [].Perm (α := α) [] := by rfl
 
@@ -29,6 +24,10 @@ opaque t₁ : Nat
 
 end X
 
+/-- info: [t₁, t₂, t₃] -/
+#guard_msgs in
+#quotify_theorems @List.Perm Nat
+
 @[quotify]
 theorem t₄ (l₁ l₂ : List Nat) : l₁ ≈ l₂ := sorry
 
@@ -36,7 +35,7 @@ theorem t₄ (l₁ l₂ : List Nat) : l₁ ≈ l₂ := sorry
 #guard_msgs in
 #quotify_theorems List.Perm
 
-/-- info: [t₄] -/
+/-- info: [t₁, t₂, t₃, t₄] -/
 #guard_msgs in
 #quotify_theorems @List.Perm Nat
 

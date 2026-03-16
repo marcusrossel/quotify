@@ -14,17 +14,16 @@ elab tk:"#quotify_equiv " rel:term : command =>
   withRef rel <| liftTermElabM do
     let binRel ← BinRel.fromTerm rel
     let info ← extension.info
-    -- **TODO** let (equiv?, _) ← info.getRelevantProofs binRel.expr
-    match info.getEquiv? binRel with
-    | some _ => logInfoAt tk "✅"
-    | none   => logInfoAt tk "❌"
+    if ← info.hasMatchingEquiv binRel then
+      logInfoAt tk "✅"
+    else
+      logInfoAt tk "❌"
 
 elab tk:"#quotify_quot " rel:term : command =>
   withRef rel <| liftTermElabM do
     let binRel ← BinRel.fromTerm rel
     let info ← extension.info
-    -- **TODO** let (some equiv, _) ← info.getRelevantProofs binRel.expr
-    let some equiv := info.getEquiv? binRel
+    let some equiv ← info.getMatchingEquiv? binRel
       | throwErrorAt tk "The relation {indentExpr binRel.expr} has no corresponding \
                          `{.ofConstName ``Setoid}` marked with `[quotify]`."
     let quotRel ← binRel.toQuotient equiv
@@ -39,7 +38,7 @@ elab tk:"#quotify_theorems " rel?:(term)? : command => liftTermElabM do
   if let some rel := rel? then
     withRef rel do
       let binRel ← BinRel.fromTerm rel
-      let (_, compatThms) ← info.getRelevantProofs binRel.expr
+      let compatThms ← info.getMatchingCompatThms binRel
       if compatThms.isEmpty then
         throwErrorAt tk "No `quotify` theorems have been registered for {indentExpr binRel.expr}"
       let msg : MessageData := compatThms.map MessageData.ofConstName

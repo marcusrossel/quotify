@@ -14,5 +14,8 @@ info: fun α lhs rhs => Quotient.mk { r := List.Perm, iseqv := ⋯ } lhs = Quoti
 #guard_msgs in
 #quotify_quot ((· ≈ ·) : List ?α → List ?α → Prop)
 
--- TODO
+/--
+info: fun lhs rhs => Quotient.mk { r := List.Perm, iseqv := ⋯ } lhs = Quotient.mk { r := List.Perm, iseqv := ⋯ } rhs
+-/
+#guard_msgs in
 #quotify_quot @List.Perm Nat

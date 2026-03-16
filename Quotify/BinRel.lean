@@ -187,11 +187,13 @@ returns `(params : Array Expr) × (lmvars : List Level) × (rel : Expr) × (argT
 and the level mvars respectively.
 -/
 public def metaTelescope (binRel : BinRel) : MetaM (Array Expr × List Level × Expr × Expr) := do
-  let (params, _, rel) ← lambdaMetaTelescope binRel.expr (maxMVars? := binRel.numParams)
-  let freshLMVars ← mkFreshLevelMVars binRel.levelParams.length
-  let rel        := rel.instantiateLevelParams binRel.levelParams freshLMVars
-  let argType     ← instantiateLambda binRel.argType params
-  let argType    := argType.instantiateLevelParams binRel.levelParams freshLMVars
+  -- It's important that we instantiate the level params with level mvars *before* we telescope, as
+  -- otherwise the types of the created (expr) mvars still refer to the level params.
+  let freshLMVars       ← mkFreshLevelMVars binRel.levelParams.length
+  let expr             := binRel.expr.instantiateLevelParams binRel.levelParams freshLMVars
+  let argType          := binRel.argType.instantiateLevelParams binRel.levelParams freshLMVars
+  let (params, _, rel)  ← lambdaMetaTelescope expr (maxMVars? := binRel.numParams)
+  let argType           ← instantiateLambda argType params
   return (params, freshLMVars, rel, argType)
 
 public def synthSetoid? (binRel : BinRel) : MetaM (Option Expr) := do
@@ -234,18 +236,24 @@ theorem eq_toQuotient (binRel : α → α → Prop) (equiv : Equivalence binRel)
     binRel = (Quotient.mk ⟨binRel, equiv⟩ · = .mk ⟨binRel, equiv⟩ ·) :=
   funext fun _ => funext fun _ => propext ⟨(Quotient.sound ·), (Quotient.exact ·)⟩
 
-public structure Unifier where
+public structure Match where
   params : Array Expr
   levels : List Level
 
--- **TODO** Level mvars do not unify: https://leanprover.zulipchat.com/#narrow/channel/270676-lean4/topic/Unify.20level.20mvars/near/579661832
-public def unify? (binRel : BinRel) (expr : Expr) : MetaM (Option Unifier) := do
-  let (params, lmvars, rel, _) ← binRel.metaTelescope
-  if ← isDefEq rel expr then
-    let params ← params.mapM instantiateMVars
-    let levels ← lmvars.mapM instantiateLevelMVars
-    return some { params, levels }
-  else
-    return none
+-- TODO: Comment.
+-- If the target is not fully applied, then the resulting match params and levels may contain mvars.
+public def match? (pattern target : BinRel) : MetaM (Option Match) := do
+  let (_, _, target, _) ← target.metaTelescope
+  -- We bump the mvar context depth so that only `pattern`s (abstracted) parameters can be matched
+  -- but not the other way around. For example, this means that `@List.Param ?α` can be matched
+  -- against `@List.Param Nat`, but not vice versa.
+  withNewMCtxDepth do
+    let (params, lmvars, pattern, _) ← pattern.metaTelescope
+    if ← isDefEq pattern target then
+      let params ← params.mapM instantiateMVars
+      let levels ← lmvars.mapM instantiateLevelMVars
+      return some { params, levels }
+    else
+      return none
 
 end BinRel
