@@ -6,8 +6,12 @@ open Lean Meta Std
 
 namespace Quotify.Extension
 
+public protected structure Setoid where
+  declName : Name
+  equiv    : Expr
+
 public inductive Entry.Val where
-  | equiv (proof : Expr)
+  | setoid (s : Extension.Setoid)
   | theorem (name : Name)
   deriving Inhabited
 
@@ -26,8 +30,11 @@ public structure Entry extends Entry.Item where
   deriving Inhabited
 
 public structure Proofs where
-  equiv?     : Option Expr := none
-  compatThms : List Name   := []
+  setoid?    : Option Extension.Setoid := none
+  compatThms : List Name               := []
+
+def Proofs.equiv? (proofs : Proofs) : Option Expr :=
+  Setoid.equiv <$> proofs.setoid?
 
 -- **TODO** The universe levels of the `BinRel`s are normalized, but those of the equivalence proofs
 --          are not.
@@ -35,23 +42,19 @@ public abbrev Info := HashMap BinRel Proofs
 
 namespace Info
 
-public def getEquiv? (info : Info) (binRel : BinRel) : Option Expr := do
-  let some proofs := info[binRel]? | none
-  proofs.equiv?
-
 def addItem (info : Info) (item : Entry.Item) : Info :=
   info.alter item.key fun proofs? =>
     match proofs?, item.val with
-    | none,        .equiv proof  => some { equiv? := proof }
+    | none,        .setoid s     => some { setoid? := s }
     | none,        .theorem name => some { compatThms := [name] }
-    | some proofs, .equiv proof  => some { proofs with equiv? := proof }
+    | some proofs, .setoid s     => some { proofs with setoid? := s }
     | some proofs, .theorem name => some { proofs with compatThms := proofs.compatThms.concat name }
 
 def eraseItem (info : Info) (item : Entry.Item) : Info :=
   info.alter item.key fun proofs? =>
     match proofs?, item.val with
     | none,        _             => none
-    | some proofs, .equiv _      => some { proofs with equiv? := none }
+    | some proofs, .setoid _     => some { proofs with setoid? := none }
     | some proofs, .theorem name => some { proofs with compatThms := proofs.compatThms.erase name }
 
 def addEntry (info : Info) (entry : Entry) : Info :=
@@ -59,21 +62,13 @@ def addEntry (info : Info) (entry : Entry) : Info :=
   | .add   => info.addItem entry.toItem
   | .erase => info.eraseItem entry.toItem
 
-public def getMatchingEquiv? (info : Info) (binRel : BinRel) : MetaM (Option Expr) := do
+public def getMatchingSetoid? (info : Info) (binRel : BinRel) : MetaM (Option Extension.Setoid) := do
   for (pattern, proofs) in info do
-    let some equiv := proofs.equiv? | continue
-    -- **TODO** What about level parameters?
-    let some { params, levels } ← pattern.match? binRel | continue
-    let equiv ← instantiateLambda equiv params
-    -- If `binRel` is not fully applied, then `params` will contain mvars for those arguments which
-    -- are to remain abstracted. Thus, after instantiating params, we abstract these mvars again.
-    let mvarParams := params.filter (·.isMVar)
-    let equiv ← mkLambdaFVars mvarParams equiv
-    return equiv
+    let some setoid := proofs.setoid? | continue
+    let some mat ← pattern.match? binRel | continue
+    let equiv ← mat.instantiate setoid.equiv
+    return some { setoid with equiv }
   return none
-
-public def hasMatchingEquiv (info : Info) (binRel : BinRel) : MetaM Bool :=
-  Option.isSome <$> info.getMatchingEquiv? binRel
 
 public def getMatchingCompatThms (info : Info) (binRel : BinRel) : MetaM (List Name) := do
   let mut compatThms : List Name := []
@@ -103,29 +98,30 @@ public initialize extension : Extension ← Extension.mk
 namespace Attribute
 
 inductive Target.Val where
-  | equiv (proof : Expr)
-  | theorem (resolvedDeclName : Name)
+  | setoid (equiv : Expr)
+  | theorem
 
 structure Target where
-  binRel : BinRel
-  val    : Target.Val
+  binRel   : BinRel
+  declName : Name
+  val      : Target.Val
 
-def Target.forDecl (resolvedDeclName : Name) : MetaM Target := do
-  match ← getConstInfo resolvedDeclName with
+def Target.forDecl (declName : Name) : MetaM Target := do
+  match ← getConstInfo declName with
   | .defnInfo defInfo =>
     let some setoid ← Setoid.forDef? defInfo
       | throwError "You can only use the `[quotify]` attribute on definitions of \
                     `{.ofConstName ``Setoid}`s."
     let binRel ← setoid.binRel
-    let equivProof ← setoid.equivProof
-    return { binRel, val := .equiv equivProof }
+    let equiv ← setoid.equivProof
+    return { binRel, declName, val := .setoid equiv }
   | .thmInfo thmInfo =>
     let some binRel ← BinRel.forThm? thmInfo
       | throwError "You can only use the `[quotify]` attribute on theorems of the form \
                   `∀ … lhs rhs, r … lhs rhs` where `r …` is a homogeneous binary relation."
-    return { binRel, val := .theorem resolvedDeclName }
+    return { binRel, declName, val := .theorem }
   | _ => throwError "You can only use the `[quotify]` attribute on theorems or definitions, but \
-                     `{.ofConstName resolvedDeclName}` is neither."
+                     `{.ofConstName declName}` is neither."
 
 end Attribute
 
@@ -133,20 +129,29 @@ open Attribute
 
 def Extension.addTarget (ex : Extension) (tgt : Target) (attrKind : AttributeKind) : MetaM Unit :=
   match tgt.val with
-  | .theorem declName =>
-    ex.add { key := tgt.binRel, kind := .add, val := .theorem declName } attrKind
-  | .equiv proof => do
+  | .theorem =>
+    let entry := { key := tgt.binRel, kind := .add, val := .theorem tgt.declName }
+    ex.add entry attrKind
+  | .setoid equiv => do
     let info ← extension.info
-    if ← info.hasMatchingEquiv tgt.binRel then
-      throwError "There already exists a `{.ofConstName ``Setoid}` marked with `[quotify]` for \
-                  the relation {indentExpr tgt.binRel.expr}"
-    ex.add { key := tgt.binRel, kind := .add, val := .equiv proof } attrKind
+    if let some setoid ← info.getMatchingSetoid? tgt.binRel then
+      throwError "The relation {indentExpr tgt.binRel.expr}\nis already covered by the \
+                  `{.ofConstName ``Setoid}` `{.ofConstName setoid.declName}` marked with \
+                  `[quotify]`."
+    let setoid := { declName := tgt.declName, equiv }
+    let entry := { key := tgt.binRel, kind := .add, val := .setoid setoid }
+    ex.add entry attrKind
 
 def Extension.eraseTarget (ex : Extension) (tgt : Target) : MetaM Unit :=
   match tgt.val with
-  | .theorem declName => ex.add { key := tgt.binRel, kind := .erase, val := .theorem declName }
-  -- Note, the `proof` is irrelevant here.
-  | .equiv proof => ex.add { key := tgt.binRel, kind := .erase, val := .equiv proof }
+  | .theorem =>
+    let entry := { key := tgt.binRel, kind := .erase, val := .theorem tgt.declName }
+    ex.add entry
+  | .setoid equiv =>
+    -- The value of `setoid` is irrelevant here.
+    let setoid := { declName := tgt.declName, equiv }
+    let entry := { key := tgt.binRel, kind := .erase, val := .setoid setoid }
+    ex.add entry
 
 def addQuotifyAttribute (declName : Name) (attrKind : AttributeKind) : MetaM Unit := do
   recordExtraModUseFromDecl (isMeta := false) declName

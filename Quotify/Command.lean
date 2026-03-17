@@ -10,21 +10,22 @@ elab tk:"#quotify_norm " rel:term : command =>
     withOptions (·.set `pp.fieldNotation.generalized false) do
       logInfoAt tk m!"[{binRel.numParams}] {binRel.expr}"
 
-elab tk:"#quotify_equiv " rel:term : command =>
+elab tk:"#quotify_setoid " rel:term : command =>
   withRef rel <| liftTermElabM do
     let binRel ← BinRel.fromTerm rel
     let info ← extension.info
-    if ← info.hasMatchingEquiv binRel then
-      logInfoAt tk "✅"
+    if let some setoid ← info.getMatchingSetoid? binRel then
+      logInfoAt tk <| .ofConstName setoid.declName
     else
-      logInfoAt tk "❌"
+      throwErrorAt tk "The relation {indentExpr binRel.expr}\nhas no matching \
+                       `{.ofConstName ``Setoid}` marked with `[quotify]`."
 
 elab tk:"#quotify_quot " rel:term : command =>
   withRef rel <| liftTermElabM do
     let binRel ← BinRel.fromTerm rel
     let info ← extension.info
-    let some equiv ← info.getMatchingEquiv? binRel
-      | throwErrorAt tk "The relation {indentExpr binRel.expr} has no corresponding \
+    let some { equiv, .. } ← info.getMatchingSetoid? binRel
+      | throwErrorAt tk "The relation {indentExpr binRel.expr}\nhas no matching \
                          `{.ofConstName ``Setoid}` marked with `[quotify]`."
     let quotRel ← binRel.toQuotient equiv
     logInfoAt tk quotRel

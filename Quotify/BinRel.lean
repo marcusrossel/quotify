@@ -73,8 +73,7 @@ def normalizeLevelParams (expr : Expr) : MetaM (Expr × List Name) := do
   let expr := expr.instantiateLevelParamsArray params normParams
   return (expr, normNames.toList)
 
--- TODO: What sort of reduction does `reduce` actually perform? Is there something more principled
---       that we could apply, e.g. to obviate the need for the subsequent `eta`?
+-- **TODO** What sort of reduction does `reduce` actually perform?
 def reduceRelation (rel : Expr) : MetaM Expr := do
   let rel ← withReducibleAndInstances do reduce (skipTypes := false) rel
   return rel.eta
@@ -240,8 +239,26 @@ public structure Match where
   params : Array Expr
   levels : List Level
 
--- TODO: Comment.
--- If the target is not fully applied, then the resulting match params and levels may contain mvars.
+-- **TODO** What about level parameters?
+public def Match.instantiate (mat : Match) (e : Expr) : MetaM Expr := do
+  let e ← instantiateLambda e mat.params
+  -- If `m` was obtained by matching a target which is not fully applied, then `params` will contain
+  -- mvars for those arguments which are to remain abstracted. Thus, after instantiating `m.params`,
+  -- we abstract these mvars again.
+  let mvarParams := mat.params.filter (·.isMVar)
+  mkLambdaFVars mvarParams e
+
+/--
+Tries to match a given `target` against a `pattern` up to definitional equality. If the match
+succeeds a substitution (a `Match`) for `target`'s parameters is returned.
+
+Matching is asymmetric in that the `pattern` must be more abstract than the `target`. For example,
+`pattern.expr = λ α, @List.Param α` will match `target.expr = @List.Param Nat`, but not the other
+way around.
+
+If `target` is not fully applied, i.e. it contains abstracted parameters, then the resulting `Match`
+will contain mvars for these parameters.
+-/
 public def match? (pattern target : BinRel) : MetaM (Option Match) := do
   let (_, _, target, _) ← target.metaTelescope
   -- We bump the mvar context depth so that only `pattern`s (abstracted) parameters can be matched
