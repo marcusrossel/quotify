@@ -240,7 +240,7 @@ public def mkIffQuotientEq (binRel : BinRel) (equiv : Expr) : MetaM Expr := do
   binRel.telescope fun params rel argType => do
     let equiv  ← instantiateLambda equiv params
     let level  ← getLevel argType
-    let proof := mkApp3 (.const ``Quotify.BinRel.iff_quotient_eq [level]) argType rel equiv
+    let proof := mkApp3 (.const ``iff_quotient_eq [level]) argType rel equiv
     mkLambdaFVars params proof
 
 public structure Match where

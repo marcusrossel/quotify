@@ -1,6 +1,8 @@
 module
 public import Lean.Meta.Basic
+import Quotify.Batteries
 public import Quotify.Setoid
+public import Quotify.Theorem
 
 open Lean Meta Std
 
@@ -10,9 +12,38 @@ public protected structure Setoid where
   declName : Name
   equiv    : Setoid.Equiv
 
+public protected structure Theorem where
+  declName  : Name
+  numParams : Nat
+  deriving BEq, Inhabited
+
+public abbrev Theorems := HashMap Theorem.Kind (List Extension.Theorem)
+
+namespace Theorems
+
+def singleton (kind : Theorem.Kind) (thm : Extension.Theorem) : Theorems :=
+  {(kind, [thm])}
+
+def add (thms : Theorems) (kind : Theorem.Kind) (thm : Extension.Theorem) : Theorems :=
+  thms.alter kind fun thms? =>
+    match thms? with
+    | none => [thm]
+    | some thms => thms.concat thm
+
+def erase (thms : Theorems) (kind : Theorem.Kind) (thm : Extension.Theorem) : Theorems :=
+  thms.alter kind fun thms? =>
+    match thms? with
+    | none => none
+    | some thms => thms.erase thm
+
+def merge (thms₁ thms₂ : Theorems) : Theorems :=
+  thms₁.mergeWith (fun _ => List.append) thms₂
+
+end Theorems
+
 public inductive Entry.Val where
   | setoid (s : Extension.Setoid)
-  | theorem (name : Name)
+  | theorem (kind : Theorem.Kind) (thm : Extension.Theorem)
   deriving Inhabited
 
 public structure Entry.Item where
@@ -29,40 +60,37 @@ public structure Entry extends Entry.Item where
   kind : Entry.Kind
   deriving Inhabited
 
-public structure Proofs where
-  setoid?    : Option Extension.Setoid := none
-  compatThms : List Name               := []
+public structure Info where
+  setoid?  : Option Extension.Setoid := none
+  theorems : Theorems                := ∅
 
-def Proofs.equiv? (proofs : Proofs) : Option Setoid.Equiv :=
-  Setoid.equiv <$> proofs.setoid?
+public abbrev Infos := HashMap BinRel Info
 
-public abbrev Info := HashMap BinRel Proofs
+namespace Infos
 
-namespace Info
+def addItem (infos : Infos) (item : Entry.Item) : Infos :=
+  infos.alter item.key fun info? =>
+    match info?, item.val with
+    | none,      .setoid s         => some { setoid? := s }
+    | none,      .theorem kind thm => some { theorems := .singleton kind thm }
+    | some info, .setoid s         => some { info with setoid? := s }
+    | some info, .theorem kind thm => some { info with theorems := info.theorems.add kind thm }
 
-def addItem (info : Info) (item : Entry.Item) : Info :=
-  info.alter item.key fun proofs? =>
-    match proofs?, item.val with
-    | none,        .setoid s     => some { setoid? := s }
-    | none,        .theorem name => some { compatThms := [name] }
-    | some proofs, .setoid s     => some { proofs with setoid? := s }
-    | some proofs, .theorem name => some { proofs with compatThms := proofs.compatThms.concat name }
+def eraseItem (infos : Infos) (item : Entry.Item) : Infos :=
+  infos.alter item.key fun info? =>
+    match info?, item.val with
+    | none,      _                 => none
+    | some info, .setoid _         => some { info with setoid? := none }
+    | some info, .theorem kind thm => some { info with theorems := info.theorems.erase kind thm }
 
-def eraseItem (info : Info) (item : Entry.Item) : Info :=
-  info.alter item.key fun proofs? =>
-    match proofs?, item.val with
-    | none,        _             => none
-    | some proofs, .setoid _     => some { proofs with setoid? := none }
-    | some proofs, .theorem name => some { proofs with compatThms := proofs.compatThms.erase name }
-
-def addEntry (info : Info) (entry : Entry) : Info :=
+def addEntry (infos : Infos) (entry : Entry) : Infos :=
   match entry.kind with
-  | .add   => info.addItem entry.toItem
-  | .erase => info.eraseItem entry.toItem
+  | .add   => infos.addItem entry.toItem
+  | .erase => infos.eraseItem entry.toItem
 
-public def getMatchingSetoid? (info : Info) (binRel : BinRel) : MetaM (Option Extension.Setoid) := do
-  for (pattern, proofs) in info do
-    let some setoid := proofs.setoid? | continue
+public def getMatchingSetoid? (infos : Infos) (binRel : BinRel) : MetaM (Option Extension.Setoid) := do
+  for (pattern, info) in infos do
+    let some setoid := info.setoid? | continue
     let some mat ← pattern.match? binRel | continue
     let equiv ← instantiateMatch mat setoid.equiv
     return some { setoid with equiv }
@@ -83,33 +111,33 @@ where
     let levelParams := binRel.levelParams
     return { proof, levelParams }
 
-public def getMatchingCompatThms (info : Info) (binRel : BinRel) : MetaM (List Name) := do
-  let mut compatThms : List Name := []
-  for (pattern, proofs) in info do
+public def getMatchingTheorems (infos : Infos) (binRel : BinRel) : MetaM Theorems := do
+  let mut thms : Theorems := ∅
+  for (pattern, info) in infos do
     unless (← pattern.match? binRel).isSome do continue
-    compatThms := compatThms ++ proofs.compatThms
-  return compatThms
+    thms := thms.merge info.theorems
+  return thms
 
-end Extension.Info
+end Extension.Infos
 
 open Extension
 
-public abbrev Extension := SimpleScopedEnvExtension Entry Info
+public abbrev Extension := SimpleScopedEnvExtension Entry Infos
 
 namespace Extension
 
 def mk : IO Extension :=
   registerSimpleScopedEnvExtension {
     initial  := ∅
-    addEntry := Info.addEntry
+    addEntry := Infos.addEntry
   }
 
-public def info (ex : Extension) : MetaM Info := do
+public def infos (ex : Extension) : MetaM Infos := do
   let env ← getEnv
   return ex.getState env
 
 public def getMatchingSetoid? (ex : Extension) (binRel : BinRel) : MetaM (Option Extension.Setoid) := do
-  let info ← ex.info
+  let info ← ex.infos
   info.getMatchingSetoid? binRel
 
 end Extension
@@ -120,7 +148,7 @@ namespace Attribute
 
 inductive Target.Val where
   | setoid (equiv : Setoid.Equiv)
-  | theorem
+  | theorem (kind : Theorem.Kind) (numParams : Nat)
 
 structure Target where
   binRel   : BinRel
@@ -141,9 +169,12 @@ def Target.forDecl (declName : Name) : MetaM Target := do
     let some binRel ← BinRel.forThm? thmInfo
       | throwError "You can only use the `[quotify]` attribute on theorems of the form \
                   `∀ … lhs rhs, r … lhs rhs` where `r …` is a homogeneous binary relation."
-    return { binRel, declName, val := .theorem }
-  | _ => throwError "You can only use the `[quotify]` attribute on theorems or definitions, but \
-                     `{.ofConstName declName}` is neither."
+    let some { kind, numParams} ← Theorem.forThm? thmInfo
+      | throwError "TODO"
+    return { binRel, declName, val := .theorem kind numParams }
+  | _ =>
+    throwError "You can only use the `[quotify]` attribute on theorems or definitions, but \
+                `{.ofConstName declName}` is neither."
 
 end Attribute
 
@@ -151,12 +182,13 @@ open Attribute
 
 def Extension.addTarget (ex : Extension) (tgt : Target) (attrKind : AttributeKind) : MetaM Unit :=
   match tgt.val with
-  | .theorem =>
-    let entry := { key := tgt.binRel, kind := .add, val := .theorem tgt.declName }
+  | .theorem kind numParams =>
+    let thm := { declName := tgt.declName, numParams }
+    let entry := { key := tgt.binRel, kind := .add, val := .theorem kind thm }
     ex.add entry attrKind
   | .setoid equiv => do
-    let info ← extension.info
-    if let some setoid ← info.getMatchingSetoid? tgt.binRel then
+    let infos ← extension.infos
+    if let some setoid ← infos.getMatchingSetoid? tgt.binRel then
       throwError "The relation {indentExpr tgt.binRel.expr}\nis already covered by the \
                   `{.ofConstName ``Setoid}` `{.ofConstName setoid.declName}` marked with \
                   `[quotify]`."
@@ -166,8 +198,11 @@ def Extension.addTarget (ex : Extension) (tgt : Target) (attrKind : AttributeKin
 
 def Extension.eraseTarget (ex : Extension) (tgt : Target) : MetaM Unit :=
   match tgt.val with
-  | .theorem =>
-    let entry := { key := tgt.binRel, kind := .erase, val := .theorem tgt.declName }
+  | .theorem kind numParams =>
+    -- The value `thm` is irrelevant here. The `kind` could be as well, but it simplifies our search
+    -- for the theorem to delete.
+    let thm := { declName := tgt.declName, numParams }
+    let entry := { key := tgt.binRel, kind := .erase, val := .theorem kind thm }
     ex.add entry
   | .setoid equiv =>
     -- The value of `setoid` is irrelevant here.
