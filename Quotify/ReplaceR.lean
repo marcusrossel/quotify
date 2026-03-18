@@ -114,3 +114,13 @@ Step 3: Intro EVERYTHING with all their original names
 This avoids breaking anything due to dependent products.
 This way we guarantee translating all "R"s in one single step.
 -/
+
+
+example (α : Type) {l₁ l₂ : List α} (h : l₁ ≈ l₂) : l₁.reverse ≈ l₂.reverse := by
+  -- have : (fun (α : Type) (lhs rhs : List α) => lhs ≈ rhs) =
+  --          (fun (α : Type) (lhs rhs : List α) => Quotient.mk' lhs = Quotient.mk' rhs) := by
+  --   sorry
+  have e : ∀ (α : Type) (lhs rhs : List α), (lhs ≈ rhs) = (Quotient.mk' lhs = Quotient.mk' rhs) := sorry
+  revert h l₁ l₂ α
+  simp only [e]
+  sorry

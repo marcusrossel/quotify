@@ -13,31 +13,37 @@ public protected structure Setoid where
 
 namespace Setoid
 
-def telescope (setoid : Quotify.Setoid) (k : Array Expr → Expr → Expr → MetaM α) : MetaM α :=
-  lambdaTelescope setoid.type fun params type => do
-    let inst := mkAppN setoid.inst params
-    k params type inst
-
-def metaTelescope (setoid : Quotify.Setoid) (k : Expr → Expr → MetaM α) : MetaM α := do
+def metaTelescope (setoid : Quotify.Setoid) (k : Array Expr → Expr → Expr → MetaM α) : MetaM α := do
   let (params, _, type) ← lambdaMetaTelescope setoid.type
   let inst := mkAppN setoid.inst params
-  k type inst
+  k params type inst
 
-public def binRel (setoid : Quotify.Setoid) : MetaM BinRel :=
-  setoid.metaTelescope fun type inst => do
-    let level ← getLevel type
-    let rel  := mkApp2 (.const ``Setoid.r [level]) type inst
-    let lhs   ← mkFreshExprMVar type
-    let rhs   ← mkFreshExprMVar type
-    let fullyAppliedRel := mkApp2 rel lhs rhs
-    let .success binRel ← BinRel.fromFullyApplied fullyAppliedRel | throwError "TODO"
-    return binRel
+public structure Equiv where
+  proof : Expr
+  -- We keep an `Equiv` abstracted over the same level parameters as its corresponding `BinRel`.
+  levelParams : List Name
 
-public def equivProof (setoid : Quotify.Setoid) : MetaM Expr :=
-  setoid.telescope fun params type inst => do
+public def components? (setoid : Quotify.Setoid) : MetaM <| Option (BinRel × Equiv) :=
+  setoid.metaTelescope fun params type inst => do
     let level  ← getLevel type
+    -- Construct the `BinRel`.
+    let rel   := mkApp2 (.const ``Setoid.r [level]) type inst
+    let lhs    ← mkFreshExprMVar type
+    let rhs    ← mkFreshExprMVar type
+    let fullyAppliedRel := mkApp2 rel lhs rhs
+    let .success binRel levelParamNorm ← BinRel.fromFullyApplied fullyAppliedRel | return none
+    -- Construct the `Equiv`.
     let proof := mkApp2 (.const ``Setoid.iseqv [level]) type inst
-    mkLambdaFVars params proof
+    let proof  ← mkLambdaFVars params proof
+    -- Normalize the level parameters of `proof` in the same way as for `rel`, by using the
+    -- `levelParamNorm` obtained from `BinRel.fromFullyApplied`. We assume that the level parameters
+    -- appearing in `proof` are a subset of those in `rel`.
+    let normParams := levelParamNorm.normal.map mkLevelParam
+    let proof := proof.instantiateLevelParams levelParamNorm.original normParams
+    -- We keep the `Equiv` abstracted over the same level parameters as its corresponding `BinRel`.
+    -- Note that `levelParamNorm.normal` should be the same as `binRel.levelParams`.
+    let equiv := { proof, levelParams := levelParamNorm.normal }
+    return some (binRel, equiv)
 
 public def forDef? (defnInfo : DefinitionVal) : MetaM (Option Quotify.Setoid) :=
   forallTelescopeReducing defnInfo.type fun params body => do

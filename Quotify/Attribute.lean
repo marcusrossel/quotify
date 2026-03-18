@@ -8,7 +8,7 @@ namespace Quotify.Extension
 
 public protected structure Setoid where
   declName : Name
-  equiv    : Expr
+  equiv    : Setoid.Equiv
 
 public inductive Entry.Val where
   | setoid (s : Extension.Setoid)
@@ -33,11 +33,9 @@ public structure Proofs where
   setoid?    : Option Extension.Setoid := none
   compatThms : List Name               := []
 
-def Proofs.equiv? (proofs : Proofs) : Option Expr :=
+def Proofs.equiv? (proofs : Proofs) : Option Setoid.Equiv :=
   Setoid.equiv <$> proofs.setoid?
 
--- **TODO** The universe levels of the `BinRel`s are normalized, but those of the equivalence proofs
---          are not.
 public abbrev Info := HashMap BinRel Proofs
 
 namespace Info
@@ -66,9 +64,24 @@ public def getMatchingSetoid? (info : Info) (binRel : BinRel) : MetaM (Option Ex
   for (pattern, proofs) in info do
     let some setoid := proofs.setoid? | continue
     let some mat ← pattern.match? binRel | continue
-    let equiv ← mat.instantiate setoid.equiv
+    let equiv ← instantiateMatch mat setoid.equiv
     return some { setoid with equiv }
   return none
+where
+  instantiateMatch (mat : BinRel.Match) (equiv : Setoid.Equiv) : MetaM Setoid.Equiv := do
+    let proof ← instantiateLambda equiv.proof mat.params
+    -- If `m` was obtained by matching a target which is not fully applied, then `params` will contain
+    -- mvars for those arguments which are to remain abstracted. Thus, after instantiating `m.params`,
+    -- we abstract these mvars again.
+    let mvarParams := mat.params.filter (·.isMVar)
+    let proof ← mkLambdaFVars mvarParams proof
+    -- As we keep an `Equiv` abstracted over the same level parameters as its corresponding
+    -- `BinRel`, the `equiv.levelParams` should match up with `pattern.levelParams`, which matches
+    -- up with `mat.levels`.
+    let proof := proof.instantiateLevelParams equiv.levelParams mat.levels
+    -- The `Equiv`'s new level params are those of the matched `BinRel`.
+    let levelParams := binRel.levelParams
+    return { proof, levelParams }
 
 public def getMatchingCompatThms (info : Info) (binRel : BinRel) : MetaM (List Name) := do
   let mut compatThms : List Name := []
@@ -83,22 +96,30 @@ open Extension
 
 public abbrev Extension := SimpleScopedEnvExtension Entry Info
 
-def Extension.mk : IO Extension :=
+namespace Extension
+
+def mk : IO Extension :=
   registerSimpleScopedEnvExtension {
     initial  := ∅
     addEntry := Info.addEntry
   }
 
-public def Extension.info (ex : Extension) : MetaM Info := do
+public def info (ex : Extension) : MetaM Info := do
   let env ← getEnv
   return ex.getState env
+
+public def getMatchingSetoid? (ex : Extension) (binRel : BinRel) : MetaM (Option Extension.Setoid) := do
+  let info ← ex.info
+  info.getMatchingSetoid? binRel
+
+end Extension
 
 public initialize extension : Extension ← Extension.mk
 
 namespace Attribute
 
 inductive Target.Val where
-  | setoid (equiv : Expr)
+  | setoid (equiv : Setoid.Equiv)
   | theorem
 
 structure Target where
@@ -112,8 +133,9 @@ def Target.forDecl (declName : Name) : MetaM Target := do
     let some setoid ← Setoid.forDef? defInfo
       | throwError "You can only use the `[quotify]` attribute on definitions of \
                     `{.ofConstName ``Setoid}`s."
-    let binRel ← setoid.binRel
-    let equiv ← setoid.equivProof
+    let some (binRel, equiv) ← setoid.components?
+      | throwError "`quotify` failed to extract the relation from the `{.ofConstName ``Setoid} \
+                    `{.ofConstName declName}"
     return { binRel, declName, val := .setoid equiv }
   | .thmInfo thmInfo =>
     let some binRel ← BinRel.forThm? thmInfo

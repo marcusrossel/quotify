@@ -1,7 +1,7 @@
 import Quotify.Command
 
 @[quotify]
-def s₂ : Setoid (List Nat) where
+def s₁ : Setoid (List Nat) where
   r := List.Perm
   iseqv := sorry
 
@@ -13,11 +13,11 @@ has no matching `Setoid` marked with `[quotify]`.
 #guard_msgs in
 #quotify_setoid List.Perm
 
-/-- info: s₂ -/
+/-- info: s₁ -/
 #guard_msgs in
 #quotify_setoid @List.Perm Nat
 
-attribute [-quotify] s₂
+attribute [-quotify] s₁
 
 /--
 error: The relation ⏎
@@ -36,14 +36,14 @@ has no matching `Setoid` marked with `[quotify]`.
 #quotify_setoid @List.Perm Nat
 
 @[quotify]
-def s₁ : Setoid (List α) where
+def s₂ : Setoid (List α) where
   r := List.Perm
   iseqv := sorry
 
-/-- info: s₁ -/
+/-- info: s₂ -/
 #guard_msgs in
 #quotify_setoid List.Perm
 
-/-- info: s₁ -/
+/-- info: s₂ -/
 #guard_msgs in
 #quotify_setoid @List.Perm Nat

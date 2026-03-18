@@ -27,7 +27,8 @@ elab tk:"#quotify_quot " rel:term : command =>
     let some { equiv, .. } ← info.getMatchingSetoid? binRel
       | throwErrorAt tk "The relation {indentExpr binRel.expr}\nhas no matching \
                          `{.ofConstName ``Setoid}` marked with `[quotify]`."
-    let quotRel ← binRel.toQuotient equiv
+    let relIffQuotientEqProof ← binRel.mkIffQuotientEq equiv.proof
+    let quotRel ← Meta.inferType relIffQuotientEqProof
     logInfoAt tk quotRel
 
 /--

@@ -1,4 +1,3 @@
-
 import Quotify.Command
 
 @[quotify]
