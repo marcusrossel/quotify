@@ -97,9 +97,9 @@ an expression of the form `λ m₁ … mₙ, rel m₁ … mₙ`, where `m₁ …
 `rel m₁ … mₙ` can itself be a `λ`, we keep track of how many arguments in the telescope parameterize
 the relation in `BinRel.numParams`. That
 -/
-def fromExpr (rel : Expr) (normalizeLevels : Bool) : MetaM FromExprResult := do
+def fromExpr (rel : Expr) (normalize : Bool) : MetaM FromExprResult := do
   let rel ← instantiateMVars rel
-  let rel ← reduceRelation rel
+  let rel ← if normalize then reduceRelation rel else pure rel
   -- Abstracts the relation over its parameters, which are (expected to be) represented as mvars. So
   -- from `rel ?m₁ … ?mₙ` we get `λ m₁ … mₙ => rel m₁ … mₙ`.
   let { expr := rel, mvars := relMVars, .. } ← abstractMVars rel
@@ -108,7 +108,7 @@ def fromExpr (rel : Expr) (normalizeLevels : Bool) : MetaM FromExprResult := do
   -- This step ensures that the names of level parameters in `rel` are consistent (note that
   -- `abstractMVars` above ensured that there are no level mvars). If we did not do this, then
   -- "obviously" equal `BinRel`s would not compare as equal due to different level parameter names.
-  let (rel, levelParamNorm) ← if normalizeLevels then normalizeLevelParams rel else pure (rel, ∅)
+  let (rel, levelParamNorm) ← if normalize then normalizeLevelParams rel else pure (rel, ∅)
   -- Gets the argument type, while also checking that `rel` is a homogeneous binary relation.
   match ← getArgType rel numParams with
   | .illformedType type =>
@@ -147,7 +147,7 @@ distinction between the binary relation and its arguments. For example, consider
 `∀ x, x ∈ a ↔ x ∈ b`, which is not an application containing the elements being compared, so it is
 not immedaitely obvious what the binary relation should be.
 -/
-public def fromFullyApplied (app : Expr) (normalizeLevels := true) : MetaM FromFullyAppliedResult := do
+public def fromFullyApplied (app : Expr) (normalize := true) : MetaM FromFullyAppliedResult := do
   -- We used to run `let app ← withConfig ({ · with beta := false }) do whnf app` at the start. This
   -- was supposed to unfold the head such that any potential arguments "hidden" in the head become
   -- visible. For example, given a definition `Empty {α} (l : List α) : Prop := l = []`, this
@@ -162,7 +162,7 @@ public def fromFullyApplied (app : Expr) (normalizeLevels := true) : MetaM FromF
   let numArgs := app.getAppNumArgs'
   unless app.getAppNumArgs' ≥ 2 do return .missingArgs numArgs
   let rel := app.stripArgsN 2
-  fromExpr rel normalizeLevels
+  fromExpr rel normalize
 
 public def fromTerm (rel : Term) : TermElabM BinRel := do
   let relExpr ← elabTerm rel none
@@ -260,8 +260,8 @@ will contain mvars for these parameters. In contrast, level parameters will not 
 mvars.
 -/
 public def match? (pattern target : BinRel) : MetaM (Option Match) := do
-  -- We do not want to instantiate the `target`'s level parameters with level mvars, as the its
-  -- level parameters are sufficient to "travel" between contexts.
+  -- We do not want to instantiate the `target`'s level parameters with level mvars, as its level
+  -- parameters are suited to "travel between contexts".
   let (_, _, target, _) ← target.metaTelescope (levels := false)
   -- We bump the mvar context depth so that only `pattern`s (abstracted) parameters can be matched
   -- but not the other way around. For example, this means that `@List.Param ?α` can be matched
