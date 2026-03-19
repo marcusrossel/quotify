@@ -21,6 +21,14 @@ public abbrev Theorems := HashMap Theorem.Kind (List Extension.Theorem)
 
 namespace Theorems
 
+public instance : ToMessageData Theorems where
+  toMessageData thms := Id.run do
+    let mut msg : MessageData := .nil
+    for (kind, thms) in thms do
+      let thmNames := thms.map (MessageData.ofConstName ·.declName)
+      msg := msg ++ m!"• {kind}: {thmNames}\n"
+    return msg
+
 def singleton (kind : Theorem.Kind) (thm : Extension.Theorem) : Theorems :=
   {(kind, [thm])}
 
@@ -166,11 +174,13 @@ def Target.forDecl (declName : Name) : MetaM Target := do
                     `{.ofConstName declName}"
     return { binRel, declName, val := .setoid equiv }
   | .thmInfo thmInfo =>
-    let some binRel ← BinRel.forThm? thmInfo
-      | throwError "You can only use the `[quotify]` attribute on theorems of the form \
-                  `∀ … lhs rhs, r … lhs rhs` where `r …` is a homogeneous binary relation."
-    let some { kind, numParams} ← Theorem.forThm? thmInfo
-      | throwError "TODO"
+    let some { kind, numParams, binRel } ← Theorem.forThm? thmInfo
+      | throwError "Theorems marked with `[quotify]` must have one of the following forms:\n\n\
+                      • `∀ …, ∀ a b, (a ≈ b) → f a = f b`\n\
+                      • `∀ …, ∀ a₁ b₁ a₂ b₂, (a₁ ≈ a₂) → (b₁ ≈ b₂) → f a₁ b₁ = f a₂ b₂`\n\
+                      • `∀ …, ∀ a b, (a ≈ b) → f a ≈ f b`\n\
+                      • `∀ …, ∀ a₁ a₂, (a₁ ≈ a₂) → ∀ b₁ b₂, (b₁ ≈ b₂) → f a₁ b₁ ≈ f a₂ b₂`\n\n\
+                    The given theorem does not match any of these."
     return { binRel, declName, val := .theorem kind numParams }
   | _ =>
     throwError "You can only use the `[quotify]` attribute on theorems or definitions, but \

@@ -2,6 +2,9 @@ module
 
 public section
 
+-- **TODO** This needs to be namespaced in `Quotify`, as otherwise it will lead to colliding
+--          definitions if this package is used in a project that also uses Mathlib.
+
 def Option.casesOn' : Option α → β → (α → β) → β
   | none, n, _ => n
   | some a, _, s => s a

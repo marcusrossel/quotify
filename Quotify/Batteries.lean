@@ -1,6 +1,9 @@
 module
 public import Std.Data.HashMap
 
+-- **TODO** This needs to be namespaced in `Quotify`, as otherwise it will lead to colliding
+--          definitions if this package is used in a project that also uses Batteries.
+
 namespace Std.HashMap
 
 variable [BEq α] [Hashable α]

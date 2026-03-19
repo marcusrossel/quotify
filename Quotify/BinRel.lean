@@ -97,7 +97,7 @@ an expression of the form `λ m₁ … mₙ, rel m₁ … mₙ`, where `m₁ …
 `rel m₁ … mₙ` can itself be a `λ`, we keep track of how many arguments in the telescope parameterize
 the relation in `BinRel.numParams`. That
 -/
-def fromExpr (rel : Expr) (normalize : Bool) : MetaM FromExprResult := do
+public def fromExpr (rel : Expr) (normalize := true) : MetaM FromExprResult := do
   let rel ← instantiateMVars rel
   let rel ← if normalize then reduceRelation rel else pure rel
   -- Abstracts the relation over its parameters, which are (expected to be) represented as mvars. So
@@ -220,12 +220,6 @@ public def synthSetoid? (binRel : BinRel) : MetaM (Option Expr) := do
     let setoidType := mkApp (.const ``Setoid [level]) argType
     let instanceType ← mkForallFVars params setoidType
     synthInstance? instanceType
-
-public def forThm? (thmInfo : TheoremVal) : MetaM (Option BinRel) := do
-  let thmType := thmInfo.type
-  let (_, _, fullyAppliedThmType) ← forallMetaTelescopeReducing thmType
-  let .success binRel _ ← BinRel.fromFullyApplied fullyAppliedThmType | return none
-  return binRel
 
 theorem iff_quotient_eq (rel : α → α → Prop) (equiv : Equivalence rel) :
     ∀ lhs rhs, rel lhs rhs ↔ (Quotient.mk ⟨rel, equiv⟩ lhs = .mk ⟨rel, equiv⟩ rhs) :=

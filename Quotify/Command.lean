@@ -43,11 +43,9 @@ elab tk:"#quotify_theorems " rel?:(term)? : command => liftTermElabM do
       let thms ← infos.getMatchingTheorems binRel
       if thms.isEmpty then
         throwErrorAt tk "No `quotify` theorems have been registered for {indentExpr binRel.expr}"
-      -- **TODO** Figure out how to print the theorems with their kind.
-      let msg : MessageData := thms.values.flatten.map (MessageData.ofConstName ·.declName)
-      logInfoAt tk msg
+      logInfoAt tk m!"{thms}"
   else
+    let mut msg : MessageData := .nil
     for (binRel, { theorems := thms, .. }) in infos do
-      -- **TODO** Figure out how to print the theorems with their kind.
-      let thmsMsg : MessageData := thms.values.flatten.map (MessageData.ofConstName ·.declName)
-      logInfoAt tk m!"{binRel.expr}:\n{thmsMsg}"
+      msg := msg ++ m!"{binRel.expr}:\n{thms}\n"
+    logInfoAt tk msg
