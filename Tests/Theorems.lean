@@ -62,10 +62,10 @@ theorem t₄ (l₁ l₂ : List Nat) (h : l₁ ≈ l₂) : l₁.reverse ≈ l₂.
 /--
 info:
 fun α => @List.Perm α:
-• map: [t₂, t₃]
-
+  • map: [t₂, t₃]
+  ⏎
 @List.Perm Nat:
-• map: [t₄]
+  • map: [t₄]
 -/
 #guard_msgs in
 set_option pp.explicit true in

@@ -15,16 +15,33 @@ Replaces all occurrences of `binRel` in the goal and local context with the corr
 equality relation, proven equal by `iffQuotEq`.
 -/
 meta def swapRelation (binRel : BinRel) (iffQuotEq : Expr) : TacticM Unit := do
-  -- We use `simp only at *` instead of `rw`, so repeated rewrites occur automatically.
-  let goal                ← getMainGoal
-  let iffQuotEqSimpThm    ← SimpTheorems.add {} (.other `Quotify.swapRelation) binRel.levelParams.toArray iffQuotEq
-  let simpCtx             ← Simp.mkContext (simpTheorems := #[iffQuotEqSimpThm])
-  let lctx                ← getLCtx
-  let fvarIdsToSimp      := lctx.getVisibleFVarIds
-  let (some (_, goal), _) ← simpGoal goal simpCtx (fvarIdsToSimp := fvarIdsToSimp)
-    | throwError "`quotify` failed to swap the relation {indentExpr binRel.expr}\nfor equality of \
-                  quotients."
-  replaceMainGoal [goal]
+  let goal ← getMainGoal
+  goal.withContext do
+    -- We use `simp only at *` instead of `rw`, so repeated rewrites occur automatically.
+    let iffQuotEqSimpThm    ← SimpTheorems.add {} (.other `Quotify.swapRelation) binRel.levelParams.toArray iffQuotEq
+    let simpCtx             ← Simp.mkContext (simpTheorems := #[iffQuotEqSimpThm])
+    let lctx                ← getLCtx
+    let fvarIdsToSimp      := lctx.getVisibleFVarIds
+    let (some (_, goal), _) ← simpGoal goal simpCtx (fvarIdsToSimp := fvarIdsToSimp)
+      | throwError "`quotify` failed to swap the relation {indentExpr binRel.expr}\nfor equality of \
+                    quotients."
+    replaceMainGoal [goal]
+
+meta def pushQuotients (binRel : BinRel) : TacticM Unit := do
+  let goal ← getMainGoal
+  goal.withContext do
+    let thms ← extension.getMatchingTheorems binRel
+    let thms ← thms.simp
+    -- We use `simp only at *` instead of `rw`, so repeated rewrites occur automatically.
+    let mut simpThms : SimpTheorems := {}
+    for thm in thms do
+      simpThms ← simpThms.add (.decl thm.declName) #[] thm.expr (inv := true)
+    let simpCtx ← Simp.mkContext (config := { failIfUnchanged := false }) (simpTheorems := #[simpThms])
+    let lctx ← getLCtx
+    let fvarIdsToSimp := lctx.getVisibleFVarIds
+    let (some (_, goal), _) ← simpGoal goal simpCtx (fvarIdsToSimp := fvarIdsToSimp)
+      | throwError "`quotify` failed to push quotients."
+    replaceMainGoal [goal]
 
 elab tk:"quotify" : tactic =>
   withRef tk <| withMainContext do
@@ -38,3 +55,4 @@ elab tk:"quotify" : tactic =>
                      for the relation {indentExpr binRel.expr}"
     let iffQuotEq ← binRel.mkIffQuotientEq setoid.equiv.proof
     swapRelation binRel iffQuotEq
+    pushQuotients binRel

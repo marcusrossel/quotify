@@ -12,14 +12,38 @@ public protected structure Setoid where
   declName : Name
   equiv    : Setoid.Equiv
 
-public protected structure Theorem where
-  declName  : Name
-  numParams : Nat
-  deriving BEq, Inhabited
-
-public abbrev Theorems := HashMap Theorem.Kind (List Extension.Theorem)
+public abbrev Theorems := HashMap Theorem.Kind (List Theorem)
 
 namespace Theorems
+
+public def simp (thms : Theorems) : MetaM (Array Theorem.Simp) := do
+  -- Explicitly specifying the kinds here allows us to control in which order `simp` will apply the
+  -- theorems.
+  let kinds := [Theorem.Kind.map₂, Theorem.Kind.map]
+  let mut simpThms := #[]
+  for kind in kinds do
+    let some thms := thms[kind]? | continue
+    let sThms ← thms.mapM (·.simp kind)
+    simpThms := simpThms ++ sThms
+  return simpThms
+
+def singleton (kind : Theorem.Kind) (thm : Theorem) : Theorems :=
+  {(kind, [thm])}
+
+def add (thms : Theorems) (kind : Theorem.Kind) (thm : Theorem) : Theorems :=
+  thms.alter kind fun thms? =>
+    match thms? with
+    | none => [thm]
+    | some thms => thms.concat thm
+
+def erase (thms : Theorems) (kind : Theorem.Kind) (thm : Theorem) : Theorems :=
+  thms.alter kind fun thms? =>
+    match thms? with
+    | none => none
+    | some thms => thms.erase thm
+
+def merge (thms₁ thms₂ : Theorems) : Theorems :=
+  thms₁.mergeWith (fun _ => List.append) thms₂
 
 public instance : ToMessageData Theorems where
   toMessageData thms := Id.run do
@@ -29,29 +53,11 @@ public instance : ToMessageData Theorems where
       msg := msg ++ m!"• {kind}: {thmNames}\n"
     return msg
 
-def singleton (kind : Theorem.Kind) (thm : Extension.Theorem) : Theorems :=
-  {(kind, [thm])}
-
-def add (thms : Theorems) (kind : Theorem.Kind) (thm : Extension.Theorem) : Theorems :=
-  thms.alter kind fun thms? =>
-    match thms? with
-    | none => [thm]
-    | some thms => thms.concat thm
-
-def erase (thms : Theorems) (kind : Theorem.Kind) (thm : Extension.Theorem) : Theorems :=
-  thms.alter kind fun thms? =>
-    match thms? with
-    | none => none
-    | some thms => thms.erase thm
-
-def merge (thms₁ thms₂ : Theorems) : Theorems :=
-  thms₁.mergeWith (fun _ => List.append) thms₂
-
 end Theorems
 
 public inductive Entry.Val where
   | setoid (s : Extension.Setoid)
-  | theorem (kind : Theorem.Kind) (thm : Extension.Theorem)
+  | theorem (kind : Theorem.Kind) (thm : Theorem)
   deriving Inhabited
 
 public structure Entry.Item where
@@ -148,6 +154,10 @@ public def getMatchingSetoid? (ex : Extension) (binRel : BinRel) : MetaM (Option
   let info ← ex.infos
   info.getMatchingSetoid? binRel
 
+public def getMatchingTheorems (ex : Extension) (binRel : BinRel) : MetaM Theorems := do
+  let info ← ex.infos
+  info.getMatchingTheorems binRel
+
 end Extension
 
 public initialize extension : Extension ← Extension.mk
@@ -155,13 +165,12 @@ public initialize extension : Extension ← Extension.mk
 namespace Attribute
 
 inductive Target.Val where
-  | setoid (equiv : Setoid.Equiv)
-  | theorem (kind : Theorem.Kind) (numParams : Nat)
+  | setoid (declName : Name) (equiv : Setoid.Equiv)
+  | theorem (kind : Theorem.Kind) (thm : Theorem)
 
 structure Target where
-  binRel   : BinRel
-  declName : Name
-  val      : Target.Val
+  binRel : BinRel
+  val    : Target.Val
 
 def Target.forDecl (declName : Name) : MetaM Target := do
   match ← getConstInfo declName with
@@ -172,16 +181,16 @@ def Target.forDecl (declName : Name) : MetaM Target := do
     let some (binRel, equiv) ← setoid.components?
       | throwError "`quotify` failed to extract the relation from the `{.ofConstName ``Setoid} \
                     `{.ofConstName declName}"
-    return { binRel, declName, val := .setoid equiv }
+    return { binRel, val := .setoid declName equiv }
   | .thmInfo thmInfo =>
-    let some { kind, numParams, binRel } ← Theorem.forThm? thmInfo
+    let some (thm, kind, binRel) ← Theorem.forThm? thmInfo
       | throwError "Theorems marked with `[quotify]` must have one of the following forms:\n\n\
                       • `∀ …, ∀ a b, (a ≈ b) → f a = f b`\n\
                       • `∀ …, ∀ a₁ b₁ a₂ b₂, (a₁ ≈ a₂) → (b₁ ≈ b₂) → f a₁ b₁ = f a₂ b₂`\n\
                       • `∀ …, ∀ a b, (a ≈ b) → f a ≈ f b`\n\
                       • `∀ …, ∀ a₁ a₂, (a₁ ≈ a₂) → ∀ b₁ b₂, (b₁ ≈ b₂) → f a₁ b₁ ≈ f a₂ b₂`\n\n\
                     The given theorem does not match any of these."
-    return { binRel, declName, val := .theorem kind numParams }
+    return { binRel, val := .theorem kind thm }
   | _ =>
     throwError "You can only use the `[quotify]` attribute on theorems or definitions, but \
                 `{.ofConstName declName}` is neither."
@@ -192,31 +201,29 @@ open Attribute
 
 def Extension.addTarget (ex : Extension) (tgt : Target) (attrKind : AttributeKind) : MetaM Unit :=
   match tgt.val with
-  | .theorem kind numParams =>
-    let thm := { declName := tgt.declName, numParams }
+  | .theorem kind thm =>
     let entry := { key := tgt.binRel, kind := .add, val := .theorem kind thm }
     ex.add entry attrKind
-  | .setoid equiv => do
+  | .setoid declName equiv => do
     let infos ← extension.infos
     if let some setoid ← infos.getMatchingSetoid? tgt.binRel then
       throwError "The relation {indentExpr tgt.binRel.expr}\nis already covered by the \
                   `{.ofConstName ``Setoid}` `{.ofConstName setoid.declName}` marked with \
                   `[quotify]`."
-    let setoid := { declName := tgt.declName, equiv }
+    let setoid := { declName, equiv }
     let entry := { key := tgt.binRel, kind := .add, val := .setoid setoid }
     ex.add entry attrKind
 
 def Extension.eraseTarget (ex : Extension) (tgt : Target) : MetaM Unit :=
   match tgt.val with
-  | .theorem kind numParams =>
-    -- The value `thm` is irrelevant here. The `kind` could be as well, but it simplifies our search
-    -- for the theorem to delete.
-    let thm := { declName := tgt.declName, numParams }
+  | .theorem kind thm =>
+    -- The value of `thm` is irrelevant here. The `kind` could be as well, but it simplifies our
+    -- search for the theorem to delete.
     let entry := { key := tgt.binRel, kind := .erase, val := .theorem kind thm }
     ex.add entry
-  | .setoid equiv =>
+  | .setoid declName equiv =>
     -- The value of `setoid` is irrelevant here.
-    let setoid := { declName := tgt.declName, equiv }
+    let setoid := { declName, equiv }
     let entry := { key := tgt.binRel, kind := .erase, val := .setoid setoid }
     ex.add entry
 

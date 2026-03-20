@@ -1,6 +1,7 @@
 module
 public import Lean.Meta.Basic
 public import Quotify.BinRel
+import Quotify.Mathlib
 
 open Lean Meta
 
@@ -27,9 +28,10 @@ public instance Theorem.Kind.instToString : ToString Theorem.Kind where
     | .map₂  => "map₂"
 
 public structure Theorem where
-  kind      : Theorem.Kind
-  numParams : Nat
-  binRel    : BinRel
+  declName       : Name
+  numParams      : Nat
+  numLevelParams : Nat
+  deriving BEq, Inhabited
 
 namespace Theorem
 
@@ -65,15 +67,48 @@ def isMap (mvars : Array Expr) (lhs rhs : Expr) (binRel : BinRel) : MetaM (Optio
   unless numParams == equivRel.numParams do return none
   return numParams
 
-public def forThm? (thmInfo : TheoremVal) : MetaM (Option Theorem) := do
+public def forThm? (thmInfo : TheoremVal) : MetaM <| Option (Theorem × Kind × BinRel) := do
   let thmType := thmInfo.type.cleanupAnnotations
   let (mvars, _, body) ← forallMetaTelescopeReducing thmType
   let #[lhs, rhs] := body.getBoundedAppArgs 2 | return none
   let rel := body.stripArgsN 2
   let .success binRel _ ← BinRel.fromExpr rel | return none
   if let some numParams ← isMap mvars lhs rhs binRel then
-    return some { kind := .map, numParams, binRel }
+    let thm := { declName := thmInfo.name, numParams, numLevelParams := thmInfo.levelParams.length }
+    return some (thm, .map, binRel)
   else if let some numParams ← isMap₂ mvars lhs rhs binRel then
-    return some { kind := .map₂, numParams, binRel }
+    let thm := { declName := thmInfo.name, numParams, numLevelParams := thmInfo.levelParams.length }
+    return some (thm, .map₂, binRel)
   else
     return none
+
+public structure Simp where
+  declName : Name
+  expr     : Expr
+
+def mkFreshExprMVars (num : Nat) : MetaM (Array Expr) :=
+  num.foldM (init := #[]) fun _ _ acc => return acc.push (← mkFreshExprMVar none)
+
+def mvarApplied (thm : Theorem) : MetaM Expr := do
+  let lmvars ← mkFreshLevelMVars thm.numLevelParams
+  let mvars ← mkFreshExprMVars thm.numParams
+  return mkAppN (.const thm.declName lmvars) mvars
+
+public def simp (thm : Theorem) : Theorem.Kind → MetaM Theorem.Simp
+  | .map => do
+    let quotientMapMk ← mkConstWithFreshMVarLevels ``Quotient.map_mk
+    let mvars ← mkFreshExprMVars 5
+    let compatThm ← thm.mvarApplied
+    let args := mvars.push compatThm
+    let expr := mkAppN quotientMapMk args
+    return { declName := thm.declName, expr }
+  | .map₂ => do
+    let quotientMap₂Mk ← mkConstWithFreshMVarLevels ``Quotient.map₂_mk
+    let mvars ← mkFreshExprMVars 7
+    let compatThm ← thm.mvarApplied
+    let args := mvars.push compatThm
+    let expr := mkAppN quotientMap₂Mk args
+    return { declName := thm.declName, expr }
+  | _ =>
+    -- **TODO**
+    return { declName := .anonymous, expr := mkNatLit 0 }
