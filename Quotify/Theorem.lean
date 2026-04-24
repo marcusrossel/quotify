@@ -171,5 +171,12 @@ public def mkPush? (thm : Theorem) (app : Expr) (setoid : Expr) : Theorem.Kind �
     let lvl ← getLevel argType
     let eq := mkApp7 (.const ``Quotient.map_mk [lvl, lvl]) argType argType setoid setoid fn h arg
     mkEqSymm eq
+  | .map₂ => do
+    let .app (.app fn arg₁) arg₂ := app | return none
+    let some h ← thm.specialize? fn | return none
+    let argType ← inferType arg₁
+    let lvl ← getLevel argType
+    let eq := mkApp10 (.const ``Quotient.map₂_mk [lvl, lvl, lvl]) argType argType argType setoid setoid setoid fn h arg₁ arg₂
+    mkEqSymm eq
   | _ =>
     return none -- **TODO**

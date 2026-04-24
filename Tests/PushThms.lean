@@ -18,4 +18,4 @@ s: fun {x} => Eq.symm (Quotient.map_mk List.reverse s x)
 
 /-- info: t: fun x_0 {x} => Eq.symm (Quotient.map_mk List.reverse t x) -/
 #guard_msgs in
-#quotify_push @List.Perm
+#quotify_push List.Perm

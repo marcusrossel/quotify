@@ -33,20 +33,6 @@ public abbrev Theorems := HashMap Theorem.Kind (List Theorem)
 
 namespace Theorems
 
--- **TODO** You should probably be using Simp.neutralConfig
-/-
-public def simp (thms : Theorems) : MetaM (Array Theorem.Simp) := do
-  -- Explicitly specifying the kinds here allows us to control in which order `simp` will apply the
-  -- theorems.
-  let kinds : List Theorem.Kind := [.map₂, .map]
-  let mut simpThms := #[]
-  for kind in kinds do
-    let some thms := thms[kind]? | continue
-    let sThms ← thms.mapM (·.simp kind)
-    simpThms := simpThms ++ sThms
-  return simpThms
--/
-
 def singleton (kind : Theorem.Kind) (thm : Theorem) : Theorems :=
   {(kind, [thm])}
 

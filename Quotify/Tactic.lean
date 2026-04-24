@@ -3,16 +3,16 @@ public meta import Lean.Elab.Tactic
 public meta import Lean.Meta.Tactic.Simp
 public meta import Quotify.Attribute
 
-open Lean Meta Elab Tactic
+open Lean Meta Elab Tactic Simp
 
 meta def Lean.LocalContext.getVisibleFVarIds (lctx : LocalContext) : Array FVarId :=
   lctx.getFVarIds.filter fun fvarId => !(lctx.get! fvarId |>.isImplementationDetail)
 
 namespace Quotify
 
--- **TODO** Swapping the relation need not be a separate step from pushing the quotients. We can perform
---          them all in a single simproc. Namely, once the swap-relation simproc applies it calls the
---          sub-simproc for pushing the quotients.
+-- **TODO** Swapping the relation need not be a separate step from pushing the quotients. We can
+--          perform them all in a single simproc. Namely, once the swap-relation simproc applies it
+--          calls the sub-simproc for pushing the quotients.
 
 /--
 Replaces all occurrences of `binRel` in the goal and local context with the corresponding quotient
@@ -31,28 +31,33 @@ meta def swapRelation (binRel : BinRel) (iffQuotEq : Expr) : TacticM Unit := do
                     quotients."
     replaceMainGoal [goal]
 
-meta def pushQuotients (binRel : BinRel) (setoid : Extension.Setoid) : TacticM Unit := do
-  -- The given `binRel` and `setoid` are derived from the proof goal and should therefore not be
-  -- abstract over any parameters.
-  let lvl ← getLevel binRel.argType
-  let setoid := mkApp3 (.const ``_root_.Setoid.mk [lvl]) binRel.argType binRel.expr setoid.equiv.proof
-  return
-  /-
+meta def pushQuotientsSimproc (thms : Extension.Theorems) : Simproc := fun e => do
+  let_expr Quotient.mk _ setoid app := e | return .continue
+  -- **TODO** This loop is very expensive at the moment.
+  for (kind, thms) in thms do
+    for thm in thms do
+      let some prf ← thm.mkPush? app setoid kind | return .continue
+      let_expr Eq _ _ pushed := ← inferType prf | return .continue
+      return .visit { expr := pushed, proof? := prf }
+  return .continue
+
+meta def pushQuotients (binRel : BinRel) : TacticM Unit := do
   let goal ← getMainGoal
   goal.withContext do
-    let thms ← extension.getMatchingTheorems binRel
-    let thms ← thms.simp
-    -- We use `simp only at *` instead of `rw`, so repeated rewrites occur automatically.
-    let mut simpThms : SimpTheorems := {}
-    for thm in thms do
-      simpThms ← simpThms.add (.decl thm.declName) #[] thm.expr (inv := true)
-    let simpCtx ← Simp.mkContext (config := { failIfUnchanged := false }) (simpTheorems := #[simpThms])
-    let lctx ← getLCtx
-    let fvarIdsToSimp := lctx.getVisibleFVarIds
-    let (some (_, goal), _) ← simpGoal goal simpCtx (fvarIdsToSimp := fvarIdsToSimp)
+    let thms ← extension.getMatchingTheorems' binRel
+    -- This follows parts of the implementation of `Command.elabSimprocPattern`. However, notably we
+    -- do not register the simproc.
+    let pattern : Expr ← elabTerm (← `(@Quotient.mk _ _ _)) none
+    Term.synthesizeSyntheticMVars
+    let keys ← withSimpGlobalConfig <| DiscrTree.mkPath pattern
+    -- Runs the simproc.
+    let simpCtx             ← Simp.mkContext Simp.neutralConfig
+    let lctx                ← getLCtx
+    let fvarIdsToSimp      := lctx.getVisibleFVarIds
+    let simprocs           := Simprocs.addCore {} keys ``pushQuotientsSimproc (post := true) (.inl <| pushQuotientsSimproc thms)
+    let (some (_, goal), _) ← simpGoal goal simpCtx #[simprocs] (fvarIdsToSimp := fvarIdsToSimp)
       | throwError "`quotify` failed to push quotients."
     replaceMainGoal [goal]
-  -/
 
 elab tk:"quotify" : tactic =>
   withRef tk <| withMainContext do
@@ -66,4 +71,4 @@ elab tk:"quotify" : tactic =>
                      for the relation {indentExpr binRel.expr}"
     let iffQuotEq ← binRel.mkIffQuotientEq setoid.equiv.proof
     swapRelation binRel iffQuotEq
-    pushQuotients binRel setoid
+    pushQuotients binRel
