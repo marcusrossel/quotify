@@ -7,7 +7,6 @@ def s₁ : Setoid (List α) where
   r := List.Perm
   iseqv := sorry
 
-
 /--
 error: The relation ⏎
   fun x_0 => @List.Perm x_0
@@ -56,6 +55,6 @@ error: The relation ⏎
 is already covered by the `Setoid` `s₁` marked with `[quotify]`.
 -/
 #guard_msgs in
-attribute [instance] s₁ in
+attribute [implicit_reducible, instance] s₁ in
 @[quotify]
 def s₆ : Setoid (List α) := s₁

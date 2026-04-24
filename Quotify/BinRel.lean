@@ -95,7 +95,7 @@ Given a `rel` of type `α → α → Prop`, returns an equivalent `BinRel` which
 to its final two arguments of type `α` and abstracts over all mvar arguments. That is, it returns
 an expression of the form `λ m₁ … mₙ, rel m₁ … mₙ`, where `m₁ … mₙ` are the mvars in `rel`. As
 `rel m₁ … mₙ` can itself be a `λ`, we keep track of how many arguments in the telescope parameterize
-the relation in `BinRel.numParams`. That
+the relation in `BinRel.numParams`.
 -/
 public def fromExpr (rel : Expr) (normalize := true) : MetaM FromExprResult := do
   let rel ← instantiateMVars rel
@@ -194,15 +194,15 @@ public def telescope (binRel : BinRel) (k : Array Expr → Expr → Expr → Met
 Given `binRel.expr` of the form `λ a₁ … aₙ, r a₁ … aₙ`, instantiates the binders with mvars and
 returns `(params : Array Expr) × (lmvars : List Level) × (rel : Expr) × (argType : Expr)` with
 `params` being the mvars for `a₁ … aₙ`, `lmvars` being the the level mvars instantiated for
-`binRel.levelParams`, and `rel` and `argType` begin instantiated to `r params` and `argType params`
+`binRel.levelParams`, and `rel` and `argType` being instantiated to `r params` and `argType params`
 and the level mvars respectively.
 
 If `levels := false`, level parameters will not be instantiated with level mvars.
 -/
 public def metaTelescope (binRel : BinRel) (levels := true) :
     MetaM (Array Expr × List Level × Expr × Expr) := do
-  let mut expr := binRel.expr
-  let mut argType := binRel.argType
+  let mut expr        := binRel.expr
+  let mut argType     := binRel.argType
   let mut freshLMVars := []
   -- It's important that we instantiate the level params with level mvars *before* we telescope, as
   -- otherwise the types of the created (expr) mvars still refer to the level params.
@@ -211,13 +211,13 @@ public def metaTelescope (binRel : BinRel) (levels := true) :
     expr       := binRel.expr.instantiateLevelParams binRel.levelParams freshLMVars
     argType    := binRel.argType.instantiateLevelParams binRel.levelParams freshLMVars
   let (params, _, rel) ← lambdaMetaTelescope expr (maxMVars? := binRel.numParams)
-  argType              ← instantiateLambda argType params
+  argType ← instantiateLambda argType params
   return (params, freshLMVars, rel, argType)
 
 public def synthSetoid? (binRel : BinRel) : MetaM (Option Expr) := do
   binRel.telescope fun params _ argType => do
-    let level ← getLevel argType
-    let setoidType := mkApp (.const ``Setoid [level]) argType
+    let level        ← getLevel argType
+    let setoidType  := mkApp (.const ``Setoid [level]) argType
     let instanceType ← mkForallFVars params setoidType
     synthInstance? instanceType
 

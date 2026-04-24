@@ -71,17 +71,24 @@ fun α => @List.Perm α:
 set_option pp.explicit true in
 #quotify_theorems
 
--- **TODO** Add some flexibility to the order in which arguments of `quotify` theorems can be given.
 @[quotify]
-theorem t₅ (l₁ l₂ r₁ r₂ : List α) (h₁ : l₁ ≈ l₂) (h₂ : r₁ ≈ r₂) : l₁ ++ r₁ ≈ l₂ ++ r₂ := sorry
-
-@[quotify]
-theorem t₆ (l₁ l₂ : List α) (h₁ : l₁ ≈ l₂) (r₁ r₂ : List α) (h₂ : r₁ ≈ r₂) : l₁ ++ r₁ ≈ l₂ ++ r₂ := sorry
+theorem t₅ (l₁ l₂ : List α) (h₁ : l₁ ≈ l₂) (r₁ r₂ : List α) (h₂ : r₁ ≈ r₂) : l₁ ++ r₁ ≈ l₂ ++ r₂ := sorry
 
 /--
 info:
 • map: [t₂, t₃]
-• map₂: [t₆]
+• map₂: [t₅]
 -/
 #guard_msgs in
 #quotify_theorems List.Perm
+
+-- **TODO** Add some flexibility to the order in which arguments of `quotify` theorems can be given.
+@[quotify]
+theorem t₆ (l₁ l₂ r₁ r₂ : List α) (h₁ : l₁ ≈ l₂) (h₂ : r₁ ≈ r₂) : l₁ ++ r₁ ≈ l₂ ++ r₂ := sorry
+
+instance : HasEquiv Nat where
+  Equiv := (· = ·)
+
+-- **TODO** We do not support different equivalence relations, even though `Quotient.map` could.
+@[quotify]
+theorem t₇ (l₁ l₂ : List α) (h : l₁ ≈ l₂) : l₁.length ≈ l₂.length := sorry

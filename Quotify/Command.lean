@@ -2,7 +2,7 @@ module
 public meta import Lean.Elab.Command
 public meta import Quotify.Attribute
 
-open Quotify Lean Elab Command
+open Quotify Lean Meta Elab Command
 
 /-- Shows how `quotify` normalizes a given binary relation. -/
 elab tk:"#quotify_norm " rel:term : command =>
@@ -15,12 +15,11 @@ elab tk:"#quotify_norm " rel:term : command =>
 elab tk:"#quotify_setoid " rel:term : command =>
   withRef tk <| liftTermElabM do
     let binRel ← BinRel.fromTerm rel
-    let infos ← extension.infos
-    if let some setoid ← infos.getMatchingSetoid? binRel then
+    if let some setoid ← extension.getMatchingSetoid? binRel then
       logInfo <| .ofConstName setoid.declName
     else
-      throwError "The relation {indentExpr binRel.expr}\nhas no matching \
-                       `{.ofConstName ``Setoid}` marked with `[quotify]`."
+      throwError "The relation {indentExpr binRel.expr}\nhas no matching `{.ofConstName ``Setoid}` \
+                  marked with `[quotify]`."
 
 /--
 Shows all `quotify` theorems registered for a given relation. If not relation is provided, all
@@ -49,8 +48,7 @@ calling `quotify`.
 elab tk:"#quotify_quot " rel:term : command =>
   withRef tk <| liftTermElabM do
     let binRel ← BinRel.fromTerm rel
-    let infos ← extension.infos
-    let some { equiv, .. } ← infos.getMatchingSetoid? binRel
+    let some { equiv, .. } ← extension.getMatchingSetoid? binRel
       | throwError "The relation {indentExpr binRel.expr}\nhas no matching \
                          `{.ofConstName ``Setoid}` marked with `[quotify]`."
     let relIffQuotientEqProof ← binRel.mkIffQuotientEq equiv.proof
@@ -61,12 +59,27 @@ elab tk:"#quotify_quot " rel:term : command =>
 elab tk:"#quotify_push " rel:term : command =>
   withRef tk <| liftTermElabM do
     let binRel ← BinRel.fromTerm rel
-    let infos ← extension.infos
-    let thms ← infos.getMatchingTheorems binRel
-    let simpThms ← thms.simp
-    if simpThms.isEmpty then
+    let thms ← extension.getMatchingTheorems' binRel
+    unless !thms.isEmpty do
       throwError "No `quotify` theorems have been registered for {indentExpr binRel.expr}"
-    let mut msg : MessageData := .nil
-    for thm in simpThms do
-      msg := msg ++ m!"{.ofConstName thm.declName}: {thm.expr}\n"
-    logInfo msg
+    let some setoid ← extension.getMatchingSetoidInstance? binRel
+      | throwError "The relation {indentExpr binRel.expr}\nhas no matching \
+                    `{.ofConstName ``Setoid}` marked with `[quotify]`."
+    -- The setup here is a bit annoying, as `Theorem.mkPush?` expects the `setoid` to be ground and
+    -- requires an `app` expression that matches `thm.fn`. As the `binRel` and each `Theorem` might
+    -- be parameterized, we thus telescope into the `binRel` and instantiate the `setoid` and
+    -- `thm.fn` with the `params` (note that `thm.fn` may already be partially instantiated by
+    -- virtue of `getMatchingTheorems'`). We then construct an application for the given `fn` with
+    -- mvars as arguments.
+    binRel.telescope fun params _ argType => do
+      let setoid ← instantiateLambda setoid params
+      let mut msg : MessageData := .nil
+      for (kind, thms) in thms do
+        for thm in thms do
+          let fn        ← instantiateLambda thm.fn params
+          let argsMVars ← kind.freshArgMVars argType
+          let app      := mkAppN fn argsMVars
+          let some push ← thm.mkPush? app setoid kind | throwError "Internal error in `#quotify_push`."
+          let push      ← mkLambdaFVars (params ++ argsMVars) push
+          msg          := msg ++ m!"{.ofConstName thm.declName}: {push}\n"
+      logInfo msg

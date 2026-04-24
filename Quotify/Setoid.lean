@@ -39,7 +39,7 @@ public def components? (setoid : Quotify.Setoid) : MetaM <| Option (BinRel × Eq
     -- `levelParamNorm` obtained from `BinRel.fromFullyApplied`. We assume that the level parameters
     -- appearing in `proof` are a subset of those in `rel`.
     let normParams := levelParamNorm.normal.map mkLevelParam
-    let proof := proof.instantiateLevelParams levelParamNorm.original normParams
+    let proof      := proof.instantiateLevelParams levelParamNorm.original normParams
     -- We keep the `Equiv` abstracted over the same level parameters as its corresponding `BinRel`.
     -- Note that `levelParamNorm.normal` should be the same as `binRel.levelParams`.
     let equiv := { proof, levelParams := levelParamNorm.normal }

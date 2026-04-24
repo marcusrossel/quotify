@@ -12,20 +12,40 @@ public protected structure Setoid where
   declName : Name
   equiv    : Setoid.Equiv
 
+/--
+Constructs a `Setoid` from an `Extension.Setoid` and (what is assumed to be) a matching `BinRel`.
+That is, the final `Setoid` has the form `{ r := binRel.expr, iseqv := setoid.equiv.proof }`. If the
+`BinRel` is parameterized, the returned `Expr` abstracts over those parameters. That is, we get
+`λ a₁ … aₙ => { r := binRel.expr a₁ … aₙ, iseqv := setoid.equiv.proof a₁ … aₙ }`.
+-/
+def Setoid.instance (setoid : Extension.Setoid) (binRel : BinRel) : MetaM Expr := do
+  binRel.telescope fun params rel argType => do
+    let lvl ← getLevel argType
+    let setoidPrefix := mkApp2 (.const ``_root_.Setoid.mk [lvl]) argType rel
+    if params.isEmpty then
+      return .app setoidPrefix setoid.equiv.proof
+    else
+      let iseqv ← instantiateLambda setoid.equiv.proof params
+      let setoid := Expr.app setoidPrefix iseqv
+      mkLambdaFVars params setoid
+
 public abbrev Theorems := HashMap Theorem.Kind (List Theorem)
 
 namespace Theorems
 
+-- **TODO** You should probably be using Simp.neutralConfig
+/-
 public def simp (thms : Theorems) : MetaM (Array Theorem.Simp) := do
   -- Explicitly specifying the kinds here allows us to control in which order `simp` will apply the
   -- theorems.
-  let kinds := [Theorem.Kind.map₂, Theorem.Kind.map]
+  let kinds : List Theorem.Kind := [.map₂, .map]
   let mut simpThms := #[]
   for kind in kinds do
     let some thms := thms[kind]? | continue
     let sThms ← thms.mapM (·.simp kind)
     simpThms := simpThms ++ sThms
   return simpThms
+-/
 
 def singleton (kind : Theorem.Kind) (thm : Theorem) : Theorems :=
   {(kind, [thm])}
@@ -65,13 +85,13 @@ public structure Entry.Item where
   val : Val
   deriving Inhabited
 
-public inductive Entry.Kind where
+public inductive Entry.Op where
   | add
   | erase
   deriving Inhabited
 
 public structure Entry extends Entry.Item where
-  kind : Entry.Kind
+  op : Entry.Op
   deriving Inhabited
 
 public structure Info where
@@ -98,7 +118,7 @@ def eraseItem (infos : Infos) (item : Entry.Item) : Infos :=
     | some info, .theorem kind thm => some { info with theorems := info.theorems.erase kind thm }
 
 def addEntry (infos : Infos) (entry : Entry) : Infos :=
-  match entry.kind with
+  match entry.op with
   | .add   => infos.addItem entry.toItem
   | .erase => infos.eraseItem entry.toItem
 
@@ -112,9 +132,9 @@ public def getMatchingSetoid? (infos : Infos) (binRel : BinRel) : MetaM (Option 
 where
   instantiateMatch (mat : BinRel.Match) (equiv : Setoid.Equiv) : MetaM Setoid.Equiv := do
     let proof ← instantiateLambda equiv.proof mat.params
-    -- If `m` was obtained by matching a target which is not fully applied, then `params` will contain
-    -- mvars for those arguments which are to remain abstracted. Thus, after instantiating `m.params`,
-    -- we abstract these mvars again.
+    -- If `mat` was obtained by matching a target which is not fully applied, then `params` will
+    -- contain mvars for those arguments which are to remain abstracted. Thus, after instantiating
+    -- `mat.params`, we abstract these mvars again.
     let mvarParams := mat.params.filter (·.isMVar)
     let proof ← mkLambdaFVars mvarParams proof
     -- As we keep an `Equiv` abstracted over the same level parameters as its corresponding
@@ -125,12 +145,45 @@ where
     let levelParams := binRel.levelParams
     return { proof, levelParams }
 
+public def getMatchingSetoidInstance? (infos : Infos) (binRel : BinRel) : MetaM (Option Expr) := do
+  let some setoid ← getMatchingSetoid? infos binRel | return none
+  setoid.instance binRel
+
 public def getMatchingTheorems (infos : Infos) (binRel : BinRel) : MetaM Theorems := do
   let mut thms : Theorems := ∅
   for (pattern, info) in infos do
     unless (← pattern.match? binRel).isSome do continue
     thms := thms.merge info.theorems
   return thms
+
+/--
+Like `getMatchingTheorems`, but instantiates the resulting theorems with the `Match` against the
+given `BinRel`.
+-/
+public def getMatchingTheorems' (infos : Infos) (binRel : BinRel) : MetaM Theorems := do
+  let mut thms : Theorems := ∅
+  for (pattern, info) in infos do
+    let some mat ← pattern.match? binRel | continue
+    for (kind, ts) in info.theorems do
+      for thm in ts do
+        let instantiatedThm ← instantiateMatch mat thm
+        thms := thms.add kind instantiatedThm
+  return thms
+where
+  instantiateMatch (mat : BinRel.Match) (thm : Theorem) : MetaM Theorem := do
+    let fn ← instantiateLambda thm.fn mat.params
+    -- If `mat` was obtained by matching a target which is not fully applied, then `params` will
+    -- contain mvars for those arguments which are to remain abstracted. Thus, after instantiating
+    -- `mat.params`, we abstract these mvars again.
+    let mvarParams := mat.params.filter (·.isMVar)
+    let fn ← mkLambdaFVars mvarParams fn
+    -- As we keep a `Theorem` abstracted over the same level parameters as its corresponding
+    -- `BinRel`, the `thm.levelParams` should match up with `pattern.levelParams`, which matches
+    -- up with `mat.levels`.
+    let fn := fn.instantiateLevelParams thm.levelParams mat.levels
+    -- The `Theorem`'s new level params are those of the matched `BinRel`.
+    let levelParams := binRel.levelParams
+    return { declName := thm.declName, fn, numParams := mvarParams.size, levelParams }
 
 end Extension.Infos
 
@@ -154,9 +207,17 @@ public def getMatchingSetoid? (ex : Extension) (binRel : BinRel) : MetaM (Option
   let info ← ex.infos
   info.getMatchingSetoid? binRel
 
+public def getMatchingSetoidInstance? (ex : Extension) (binRel : BinRel) : MetaM (Option Expr) := do
+  let info ← ex.infos
+  info.getMatchingSetoidInstance? binRel
+
 public def getMatchingTheorems (ex : Extension) (binRel : BinRel) : MetaM Theorems := do
   let info ← ex.infos
   info.getMatchingTheorems binRel
+
+public def getMatchingTheorems' (ex : Extension) (binRel : BinRel) : MetaM Theorems := do
+  let info ← ex.infos
+  info.getMatchingTheorems' binRel
 
 end Extension
 
@@ -202,7 +263,7 @@ open Attribute
 def Extension.addTarget (ex : Extension) (tgt : Target) (attrKind : AttributeKind) : MetaM Unit :=
   match tgt.val with
   | .theorem kind thm =>
-    let entry := { key := tgt.binRel, kind := .add, val := .theorem kind thm }
+    let entry := { key := tgt.binRel, op := .add, val := .theorem kind thm }
     ex.add entry attrKind
   | .setoid declName equiv => do
     let infos ← extension.infos
@@ -211,7 +272,7 @@ def Extension.addTarget (ex : Extension) (tgt : Target) (attrKind : AttributeKin
                   `{.ofConstName ``Setoid}` `{.ofConstName setoid.declName}` marked with \
                   `[quotify]`."
     let setoid := { declName, equiv }
-    let entry := { key := tgt.binRel, kind := .add, val := .setoid setoid }
+    let entry := { key := tgt.binRel, op := .add, val := .setoid setoid }
     ex.add entry attrKind
 
 def Extension.eraseTarget (ex : Extension) (tgt : Target) : MetaM Unit :=
@@ -219,12 +280,12 @@ def Extension.eraseTarget (ex : Extension) (tgt : Target) : MetaM Unit :=
   | .theorem kind thm =>
     -- The value of `thm` is irrelevant here. The `kind` could be as well, but it simplifies our
     -- search for the theorem to delete.
-    let entry := { key := tgt.binRel, kind := .erase, val := .theorem kind thm }
+    let entry := { key := tgt.binRel, op := .erase, val := .theorem kind thm }
     ex.add entry
   | .setoid declName equiv =>
     -- The value of `setoid` is irrelevant here.
     let setoid := { declName, equiv }
-    let entry := { key := tgt.binRel, kind := .erase, val := .setoid setoid }
+    let entry := { key := tgt.binRel, op := .erase, val := .setoid setoid }
     ex.add entry
 
 def addQuotifyAttribute (declName : Name) (attrKind : AttributeKind) : MetaM Unit := do
