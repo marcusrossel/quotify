@@ -74,7 +74,7 @@ def lift? (mvars : Array Expr) (lhs rhs : Expr) : MetaM <| Option (Theorem.Funct
 -- **TODO** Ensure that `fᵢ` is not itself a parameter?
 def lift₂? (mvars : Array Expr) (lhs rhs : Expr) : MetaM <| Option (Theorem.Function × BinRel) := do
   let targetsStartIdx := mvars.size - 6
-  let [a₁, a₂, aEquiv, b₁, b₂, bEquiv] := mvars[targetsStartIdx...mvars.size].toList | return none
+  let [a₁, a₂, b₁, b₂, aEquiv, bEquiv] := mvars[targetsStartIdx...mvars.size].toList | return none
   let .app (.app f₁ a₁') b₁' := lhs | return none
   let .app (.app f₂ a₂') b₂' := rhs | return none
   unless f₁ == f₂ && a₁ == a₁' && a₂ == a₂' && b₁ == b₁' && b₂ == b₂' do return none
@@ -140,10 +140,10 @@ public def forThm? (thmInfo : TheoremVal) : MetaM <| Option (Theorem × Kind × 
   if rel.isAppOfArity ``Eq 1 then
     if let some (f, binRel) ← lift? mvars lhs rhs then
       let thm := { f with declName := thmInfo.name, levelParams := thmInfo.levelParams }
-      return some (thm, .map, binRel)
+      return some (thm, .lift, binRel)
     else if let some (f, binRel) ← lift₂? mvars lhs rhs then
       let thm := { f with declName := thmInfo.name, levelParams := thmInfo.levelParams }
-      return some (thm, .map₂, binRel)
+      return some (thm, .lift₂, binRel)
   else if let .success binRel _ ← BinRel.fromExpr rel then
     if let some f ← map? mvars lhs rhs binRel then
       let thm := { f with declName := thmInfo.name, levelParams := thmInfo.levelParams }
