@@ -55,6 +55,43 @@ public structure _root_.Quotify.Theorem extends Function where
   levelParams : List Name
   deriving BEq, Inhabited
 
+def lift? (mvars : Array Expr) (lhs rhs : Expr) : MetaM <| Option (Theorem.Function × BinRel) := do
+  let targetsStartIdx := mvars.size - 3
+  let [a, b, equiv] := mvars[targetsStartIdx...mvars.size].toList | return none
+  let .app f₁ a' := lhs | return none
+  let .app f₂ b' := rhs | return none
+  unless f₁ == f₂ && a == a' && b == b' do return none
+  let equivType ← inferType equiv
+  let .success equivRel _ ← BinRel.fromFullyApplied equivType | return none
+  let params := mvars[0...targetsStartIdx]
+  let numParams := params.size
+  -- This is a low-effort check that the theorem's leading parameters are (at least the same number
+  -- as) those abstracting the equivalence relation.
+  unless numParams == equivRel.numParams do return none
+  let fn ← mkLambdaFVars params f₁
+  return some ({ fn, numParams }, equivRel)
+
+-- **TODO** Ensure that `fᵢ` is not itself a parameter?
+def lift₂? (mvars : Array Expr) (lhs rhs : Expr) : MetaM <| Option (Theorem.Function × BinRel) := do
+  let targetsStartIdx := mvars.size - 6
+  let [a₁, a₂, aEquiv, b₁, b₂, bEquiv] := mvars[targetsStartIdx...mvars.size].toList | return none
+  let .app (.app f₁ a₁') b₁' := lhs | return none
+  let .app (.app f₂ a₂') b₂' := rhs | return none
+  unless f₁ == f₂ && a₁ == a₁' && a₂ == a₂' && b₁ == b₁' && b₂ == b₂' do return none
+  let aEquivType ← inferType aEquiv
+  let bEquivType ← inferType bEquiv
+  let .success aEquivRel _ ← BinRel.fromFullyApplied aEquivType | return none
+  let .success bEquivRel _ ← BinRel.fromFullyApplied bEquivType | return none
+  -- **TODO** This need not be the same equivalence relation.
+  unless aEquivRel == bEquivRel do return none
+  let params := mvars[0...targetsStartIdx]
+  let numParams := params.size
+  -- This is a low-effort check that the theorem's leading parameters are (at least the same number
+  -- as) those abstracting the equivalence relation.
+  unless numParams == aEquivRel.numParams do return none
+  let fn ← mkLambdaFVars params f₁
+  return some ({ fn, numParams }, aEquivRel)
+
 -- **TODO** Ensure that `fᵢ` is not itself a parameter?
 def map? (mvars : Array Expr) (lhs rhs : Expr) (binRel : BinRel) : MetaM (Option Theorem.Function) := do
   let targetsStartIdx := mvars.size - 3
@@ -100,15 +137,21 @@ public def forThm? (thmInfo : TheoremVal) : MetaM <| Option (Theorem × Kind × 
   let (mvars, _, body) ← forallMetaTelescopeReducing thmType
   let #[lhs, rhs] := body.getBoundedAppArgs 2 | return none
   let rel := body.stripArgsN 2
-  let .success binRel _ ← BinRel.fromExpr rel | return none
-  if let some f ← map? mvars lhs rhs binRel then
-    let thm := { f with declName := thmInfo.name, levelParams := thmInfo.levelParams }
-    return some (thm, .map, binRel)
-  else if let some f ← map₂? mvars lhs rhs binRel then
-    let thm := { f with declName := thmInfo.name, levelParams := thmInfo.levelParams }
-    return some (thm, .map₂, binRel)
-  else
-    return none
+  if rel.isAppOfArity ``Eq 1 then
+    if let some (f, binRel) ← lift? mvars lhs rhs then
+      let thm := { f with declName := thmInfo.name, levelParams := thmInfo.levelParams }
+      return some (thm, .map, binRel)
+    else if let some (f, binRel) ← lift₂? mvars lhs rhs then
+      let thm := { f with declName := thmInfo.name, levelParams := thmInfo.levelParams }
+      return some (thm, .map₂, binRel)
+  else if let .success binRel _ ← BinRel.fromExpr rel then
+    if let some f ← map? mvars lhs rhs binRel then
+      let thm := { f with declName := thmInfo.name, levelParams := thmInfo.levelParams }
+      return some (thm, .map, binRel)
+    else if let some f ← map₂? mvars lhs rhs binRel then
+      let thm := { f with declName := thmInfo.name, levelParams := thmInfo.levelParams }
+      return some (thm, .map₂, binRel)
+  return none
 
 /--
 Given `thm.fn` of the form `λ a₁ … aₙ, f a₁ … aₙ`, instantiates the binders with mvars and returns
