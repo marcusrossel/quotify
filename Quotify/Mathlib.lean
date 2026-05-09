@@ -4,6 +4,7 @@ public section
 
 -- **TODO** This needs to be namespaced in `Quotify`, as otherwise it will lead to colliding
 --          definitions if this package is used in a project that also uses Mathlib.
+namespace Quotify
 
 def Option.casesOn' : Option α → β → (α → β) → β
   | none, n, _ => n
@@ -52,3 +53,5 @@ theorem map₂_mk (f : α → β → γ) (h) (x : α) (y : β) :
   rfl
 
 end Quotient
+
+end Quotify

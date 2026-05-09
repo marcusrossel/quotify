@@ -23,7 +23,7 @@ meta def swapRelation (binRel : BinRel) (iffQuotEq : Expr) : TacticM Unit := do
   goal.withContext do
     -- We use `simp only at *` instead of `rw`, so repeated rewrites occur automatically.
     let iffQuotEqSimpThm    ← SimpTheorems.add {} (.other `Quotify.swapRelation) binRel.levelParams.toArray iffQuotEq
-    let simpCtx             ← Simp.mkContext (simpTheorems := #[iffQuotEqSimpThm])
+    let simpCtx             ← Simp.mkContext (simpTheorems := #[iffQuotEqSimpThm]) (config := {failIfUnchanged := false})
     let lctx                ← getLCtx
     let fvarIdsToSimp      := lctx.getVisibleFVarIds
     let (some (_, goal), _) ← simpGoal goal simpCtx (fvarIdsToSimp := fvarIdsToSimp)
@@ -51,7 +51,7 @@ meta def pushQuotients (binRel : BinRel) : TacticM Unit := do
     Term.synthesizeSyntheticMVars
     let keys ← withSimpGlobalConfig <| DiscrTree.mkPath pattern
     -- Runs the simproc.
-    let simpCtx             ← Simp.mkContext Simp.neutralConfig
+    let simpCtx             ← Simp.mkContext {Simp.neutralConfig with failIfUnchanged := false}
     let lctx                ← getLCtx
     let fvarIdsToSimp      := lctx.getVisibleFVarIds
     let simprocs           := Simprocs.addCore {} keys ``pushQuotientsSimproc (post := true) (.inl <| pushQuotientsSimproc thms)
