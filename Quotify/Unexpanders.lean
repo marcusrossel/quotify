@@ -17,13 +17,13 @@ def unexpandLift₂ : Lean.PrettyPrinter.Unexpander
   | `($_ $t:term $_:term) => `(⟦$t⟧)
   | _ => throw ()
 
-@[app_unexpander Quotient.map]
+@[app_unexpander Quotify.Quotient.map]
 def unexpandMap : Lean.PrettyPrinter.Unexpander
   | `($_ $t:term ⋯) => `(⟦$t⟧)
   | `($_ $t:term $_:term) => `(⟦$t⟧)
   | _ => throw ()
 
-@[app_unexpander Quotient.map₂]
+@[app_unexpander Quotify.Quotient.map₂]
 def unexpandMap₂ : Lean.PrettyPrinter.Unexpander
   | `($_ $t:term ⋯) => `(⟦$t⟧)
   | `($_ $t:term $_:term) => `(⟦$t⟧)
